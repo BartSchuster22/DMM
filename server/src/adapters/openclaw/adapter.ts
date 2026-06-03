@@ -1,4 +1,4 @@
-import type { AdapterContext, CredentialValidationResult, DiscoveredModel, DiscoveredProvider, HarnessAdapter, HarnessHealth, HarnessUpdateStatus, HarnessVersion, InstallCredentialInput, InstallCredentialResult, ValidateCredentialInput } from '../types.js';
+import type { AdapterContext, CredentialValidationResult, DiscoveredModel, DiscoveredProvider, HarnessAdapter, HarnessHealth, HarnessUpdateStatus, HarnessVersion, InstallCredentialInput, InstallCredentialResult, ValidateCredentialInput, HarnessCatalogSnapshotInput } from '../types.js';
 import { fetchJsonOrText } from '../http.js';
 import { callHostHelper, parseTextVersion } from '../host-helper.js';
 
@@ -7,7 +7,7 @@ export class OpenClawAdapter implements HarnessAdapter {
   harnessType = 'openclaw';
 
   capabilities() {
-    return { health: true, providerDiscovery: false, modelDiscovery: false, credentialValidation: false, credentialInstall: false, hotReload: false, oauth: false, version: true, updateStatus: true, updateDryRun: false, updateApply: false, restart: false, catalogRefresh: false };
+    return { health: true, providerDiscovery: false, modelDiscovery: false, credentialValidation: false, credentialInstall: false, hotReload: false, oauth: false, version: true, updateStatus: true, updateDryRun: false, updateApply: false, restart: false, catalogRefresh: true };
   }
 
   async health(ctx: AdapterContext): Promise<HarnessHealth> {
@@ -54,6 +54,11 @@ export class OpenClawAdapter implements HarnessAdapter {
 
   async discoverModels(_ctx: AdapterContext): Promise<DiscoveredModel[]> {
     return [];
+  }
+
+  async catalogRefresh(ctx: AdapterContext): Promise<HarnessCatalogSnapshotInput> {
+    const version = await this.version(ctx);
+    return { harnessId: ctx.harness.id, harnessType: this.harnessType, harnessVersion: version.currentVersion, capturedAt: new Date().toISOString(), source: { method: 'partial', commands: ['openclaw models status --json', 'openclaw providers status --json'], notes: ['Harness-specific catalog ingestion owned by OpenClaw adapter. P1 stores snapshots/diffs; structured provider/model extraction will be filled in this adapter next.'] }, providers: [], models: [], raw: { version } };
   }
 
   async validateCredential(_ctx: AdapterContext, _input: ValidateCredentialInput): Promise<CredentialValidationResult> {

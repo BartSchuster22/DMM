@@ -63,8 +63,18 @@ export type HarnessUpdateResult = {
   raw?: unknown;
 };
 
-export type DiscoveredProvider = { id: string; label: string; harnessProviderId: string; authMethod: string; metadata?: Record<string, unknown> };
-export type DiscoveredModel = { id: string; providerId: string; displayName: string; harnessModelId: string; metadata?: Record<string, unknown> };
+export type DiscoveredProvider = { id: string; label: string; harnessProviderId: string; authMethod: string; status?: string; metadata?: Record<string, unknown> };
+export type DiscoveredModel = { id: string; providerId: string; displayName: string; harnessModelId: string; status?: string; modality?: string; contextWindow?: number; metadata?: Record<string, unknown> };
+export type HarnessCatalogSnapshotInput = {
+  harnessId: string;
+  harnessType: string;
+  harnessVersion?: string;
+  capturedAt: string;
+  source: { method: 'api' | 'cli' | 'config' | 'manifest' | 'mixed' | 'partial'; commands?: string[]; files?: string[]; endpoints?: string[]; notes?: string[] };
+  providers: DiscoveredProvider[];
+  models: DiscoveredModel[];
+  raw?: unknown;
+};
 export type ValidateCredentialInput = { providerId: string; secretRef: string };
 export type CredentialValidationResult = { status: 'healthy' | 'invalid' | 'unsupported' | 'error'; message?: string };
 export type InstallCredentialInput = { providerId: string; secretRef: string };
@@ -83,7 +93,9 @@ export interface HarnessAdapter {
   installCredential(ctx: AdapterContext, input: InstallCredentialInput): Promise<InstallCredentialResult>;
   version?(ctx: AdapterContext): Promise<HarnessVersion>;
   updateStatus?(ctx: AdapterContext): Promise<HarnessUpdateStatus>;
+  catalogRefresh?(ctx: AdapterContext): Promise<HarnessCatalogSnapshotInput>;
 }
+
 
 export type HarnessView = {
   id: string;

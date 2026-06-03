@@ -7,6 +7,7 @@ import { verifyPassword } from './auth/password.js';
 import { insertAudit, listAudit } from './db/sqlite.js';
 import type { AdapterRegistry } from './adapters/registry.js';
 import { listModels, listProviders, setModelStatus, setProviderStatus } from './catalog/catalog.js';
+import { listCatalogDiffs, listCatalogSnapshots } from './catalog/snapshots.js';
 import { deleteCredential, markCredentialValidated, saveCredential } from './vault/credential-store.js';
 export type AppContext = { db: Db; config: AppConfig; version: string; adapters: AdapterRegistry };
 type LoginBody = { username?: string; password?: string };
@@ -24,6 +25,10 @@ export async function registerApi(app: FastifyInstance, ctx: AppContext): Promis
   app.get('/api/harnesses', { preHandler: requireAuth(ctx) }, async () => ok({ harnesses: ctx.adapters.configuredHarnesses() }));
   app.post('/api/harnesses/refresh', { preHandler: requireAuth(ctx) }, async () => { await ctx.adapters.refreshAll('admin'); return ok({ harnesses: await ctx.adapters.refreshLifecycle('admin') }); });
   app.post('/api/harnesses/lifecycle/refresh', { preHandler: requireAuth(ctx) }, async () => ok({ harnesses: await ctx.adapters.refreshLifecycle('admin') }));
+  app.get('/api/catalog/snapshots', { preHandler: requireAuth(ctx) }, async () => ok({ snapshots: listCatalogSnapshots(ctx.db) }));
+  app.get('/api/catalog/diffs', { preHandler: requireAuth(ctx) }, async () => ok({ diffs: listCatalogDiffs(ctx.db) }));
+  app.post('/api/catalog/refresh', { preHandler: requireAuth(ctx) }, async () => ok({ results: await ctx.adapters.refreshCatalog('admin') }));
+  app.post('/api/harnesses/:id/catalog/refresh', { preHandler: requireAuth(ctx) }, async (request) => ok({ results: await ctx.adapters.refreshCatalog('admin', (request.params as any).id) }));
   app.get('/api/providers', { preHandler: requireAuth(ctx) }, async () => ok({ providers: listProviders(ctx.db) }));
   app.post('/api/providers/:id/enable', { preHandler: requireAuth(ctx) }, async (request) => ok({ provider: setProviderStatus(ctx.db, 'admin', (request.params as any).id, 'available') }));
   app.post('/api/providers/:id/disable', { preHandler: requireAuth(ctx) }, async (request) => ok({ provider: setProviderStatus(ctx.db, 'admin', (request.params as any).id, 'disabled' as ProviderStatus) }));

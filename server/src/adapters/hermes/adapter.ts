@@ -1,4 +1,4 @@
-import type { AdapterContext, CredentialValidationResult, DiscoveredModel, DiscoveredProvider, HarnessAdapter, HarnessHealth, HarnessUpdateStatus, HarnessVersion, InstallCredentialInput, InstallCredentialResult, ValidateCredentialInput } from '../types.js';
+import type { AdapterContext, CredentialValidationResult, DiscoveredModel, DiscoveredProvider, HarnessAdapter, HarnessHealth, HarnessUpdateStatus, HarnessVersion, InstallCredentialInput, InstallCredentialResult, ValidateCredentialInput, HarnessCatalogSnapshotInput } from '../types.js';
 import { fetchJsonOrText } from '../http.js';
 import { callHostHelper, parseTextVersion } from '../host-helper.js';
 
@@ -7,7 +7,7 @@ export class HermesAdapter implements HarnessAdapter {
   harnessType = 'hermes';
 
   capabilities() {
-    return { health: true, providerDiscovery: false, modelDiscovery: true, credentialValidation: false, credentialInstall: false, hotReload: false, oauth: false, version: true, updateStatus: true, updateDryRun: false, updateApply: false, restart: false, catalogRefresh: false };
+    return { health: true, providerDiscovery: false, modelDiscovery: true, credentialValidation: false, credentialInstall: false, hotReload: false, oauth: false, version: true, updateStatus: true, updateDryRun: false, updateApply: false, restart: false, catalogRefresh: true };
   }
 
   async health(ctx: AdapterContext): Promise<HarnessHealth> {
@@ -61,6 +61,15 @@ export class HermesAdapter implements HarnessAdapter {
     } catch {
       return [];
     }
+  }
+
+  async catalogRefresh(ctx: AdapterContext): Promise<HarnessCatalogSnapshotInput> {
+    const version = await this.version(ctx);
+    const models = await this.discoverModels(ctx);
+    const providersById = new Map<string, DiscoveredProvider>();
+    for (const model of models) providersById.set(model.providerId, { id: model.providerId, label: model.providerId, harnessProviderId: model.providerId, authMethod: 'unknown', status: 'runtime_visible', metadata: { source: 'derived-from-hermes-v1-models' } });
+    if (!providersById.has('hermes') && models.length === 0) providersById.set('hermes', { id: 'hermes', label: 'Hermes runtime', harnessProviderId: 'hermes', authMethod: 'unknown', status: 'runtime_probe_empty', metadata: { source: 'hermes-adapter', note: 'Provider registry endpoint not available yet; /v1/models returned no models or was inaccessible.' } });
+    return { harnessId: ctx.harness.id, harnessType: this.harnessType, harnessVersion: version.currentVersion, capturedAt: new Date().toISOString(), source: { method: 'partial', endpoints: [`${ctx.harness.baseUrl}/v1/models`], notes: ['Harness-specific catalog ingestion owned by Hermes adapter. Current implementation records runtime-visible /v1/models; full provider registry remains a Hermes adapter task.'] }, providers: [...providersById.values()], models, raw: { version } };
   }
 
   async validateCredential(_ctx: AdapterContext, _input: ValidateCredentialInput): Promise<CredentialValidationResult> {

@@ -124,6 +124,30 @@ export function migrate(db: Db): void {
       payload_json TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS catalog_snapshots (
+      id TEXT PRIMARY KEY,
+      harness_id TEXT NOT NULL REFERENCES harnesses(id) ON DELETE CASCADE,
+      harness_version TEXT,
+      provider_count INTEGER NOT NULL DEFAULT 0,
+      model_count INTEGER NOT NULL DEFAULT 0,
+      source_method TEXT NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      captured_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS catalog_diffs (
+      id TEXT PRIMARY KEY,
+      harness_id TEXT NOT NULL REFERENCES harnesses(id) ON DELETE CASCADE,
+      from_snapshot_id TEXT,
+      to_snapshot_id TEXT NOT NULL REFERENCES catalog_snapshots(id) ON DELETE CASCADE,
+      added_providers_json TEXT NOT NULL DEFAULT '[]',
+      removed_providers_json TEXT NOT NULL DEFAULT '[]',
+      changed_providers_json TEXT NOT NULL DEFAULT '[]',
+      added_models_json TEXT NOT NULL DEFAULT '[]',
+      removed_models_json TEXT NOT NULL DEFAULT '[]',
+      changed_models_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
       value_json TEXT NOT NULL,
