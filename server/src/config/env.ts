@@ -23,6 +23,7 @@ export type AppConfig = {
   adminPassword?: string;
   cookieSecure: boolean;
   harnesses: HarnessConfig[];
+  rateLimitMax: number;
 };
 
 const defaultHarnesses: HarnessConfig[] = [
@@ -53,6 +54,7 @@ export function loadConfig(): AppConfig {
     adminUser: process.env.DMM_ADMIN_USER ?? 'admin',
     adminPassword: process.env.DMM_ADMIN_PASSWORD,
     cookieSecure: publicUrl.startsWith('https://') || nodeEnv === 'production',
-    harnesses: loadHarnesses()
+    harnesses: loadHarnesses(),
+    rateLimitMax: Number(process.env.DMM_RATE_LIMIT_MAX ?? 120)
   };
 }

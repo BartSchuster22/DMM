@@ -19,7 +19,7 @@ const admin = ensureAdmin(db, config.adminUser, config.adminPassword);
 if (admin.generatedPassword) console.log(`[DMM] Generated initial admin credentials username=${admin.username} password=${admin.generatedPassword}`);
 const adapters = new AdapterRegistry(db, config.harnesses);
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
-await app.register(cookie); await app.register(rateLimit, { max: 20, timeWindow: '1 minute' }); await registerApi(app, { db, config, version, adapters });
+await app.register(cookie); await app.register(rateLimit, { max: config.rateLimitMax, timeWindow: '1 minute' }); await registerApi(app, { db, config, version, adapters });
 const here = dirname(fileURLToPath(import.meta.url)); const webDist = resolve(here, '../../web/dist');
 if (existsSync(webDist)) { await app.register(fastifyStatic, { root: webDist, prefix: '/' }); app.setNotFoundHandler((request, reply) => { if (request.url.startsWith('/api') || request.url === '/health') return reply.code(404).send({ ok: false, error: { code: 'not_found', message: 'Not found' } }); return reply.sendFile('index.html'); }); }
 const shutdown = async () => { await app.close(); db.close(); process.exit(0); };
