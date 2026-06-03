@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
@@ -9,8 +9,9 @@ import { loadConfig } from './config/env.js';
 import { migrate, openDb } from './db/sqlite.js';
 import { ensureAdmin } from './auth/bootstrap.js';
 import { registerApi } from './api.js';
+import { AdapterRegistry } from './adapters/registry.js';
 
-const version = '0.1.0';
+const version = '0.2.0';
 const config = loadConfig();
 const db = openDb(config.dbPath);
 migrate(db);
@@ -18,11 +19,12 @@ const admin = ensureAdmin(db, config.adminUser, config.adminPassword);
 if (admin.generatedPassword) {
   console.log(`[DMM] Generated initial admin credentials username=${admin.username} password=${admin.generatedPassword}`);
 }
+const adapters = new AdapterRegistry(db, config.harnesses);
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' } });
 await app.register(cookie);
 await app.register(rateLimit, { max: 20, timeWindow: '1 minute' });
-await registerApi(app, { db, config, version });
+await registerApi(app, { db, config, version, adapters });
 
 const here = dirname(fileURLToPath(import.meta.url));
 const webDist = resolve(here, '../../web/dist');

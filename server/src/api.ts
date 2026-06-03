@@ -5,8 +5,9 @@ import { dmmSectionManifest, type ApiResponse, type AuthUser, type StatusPayload
 import { createSession, destroySession, getSession, requestSessionId, setSessionCookie, clearSessionCookie, sign, csrfHeader } from './auth/sessions.js';
 import { verifyPassword } from './auth/password.js';
 import { insertAudit, listAudit } from './db/sqlite.js';
+import type { AdapterRegistry } from './adapters/registry.js';
 
-export type AppContext = { db: Db; config: AppConfig; version: string };
+export type AppContext = { db: Db; config: AppConfig; version: string; adapters: AdapterRegistry };
 
 type LoginBody = { username?: string; password?: string };
 
@@ -44,7 +45,8 @@ export async function registerApi(app: FastifyInstance, ctx: AppContext): Promis
     return ok({ loggedOut: true });
   });
   app.get('/api/audit', { preHandler: requireAuth(ctx) }, async () => ok({ events: listAudit(ctx.db) }));
-  app.get('/api/harnesses', { preHandler: requireAuth(ctx) }, async () => ok({ harnesses: [] }));
+  app.get('/api/harnesses', { preHandler: requireAuth(ctx) }, async () => ok({ harnesses: ctx.adapters.configuredHarnesses() }));
+  app.post('/api/harnesses/refresh', { preHandler: requireAuth(ctx) }, async () => ok({ harnesses: await ctx.adapters.refreshAll('admin') }));
   app.get('/api/providers', { preHandler: requireAuth(ctx) }, async () => ok({ providers: [] }));
   app.get('/api/models', { preHandler: requireAuth(ctx) }, async () => ok({ models: [] }));
 }
