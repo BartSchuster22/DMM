@@ -6,3 +6,4 @@ data
 *.sqlite
 *.sqlite-*
 .DS_Store
+.admin-password
