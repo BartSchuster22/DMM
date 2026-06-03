@@ -1,60 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { AuthUser, SectionManifest } from '@dmm/shared';
+import type { AuthUser, ProviderView, ModelView, AuditEvent } from '@dmm/shared';
 import { dmmSectionManifest } from '@dmm/shared';
 import './styles.css';
-
-type Me = { user: AuthUser; csrfToken: string };
-type Api<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } };
-
-async function api<T>(path: string, init?: RequestInit): Promise<Api<T>> {
-  const res = await fetch(path, { credentials: 'same-origin', headers: { 'content-type': 'application/json', ...(init?.headers || {}) }, ...init });
-  return res.json();
-}
-
-function LoginPage({ onLogin }: { onLogin: (me: Me) => void }) {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  async function submit(e: React.FormEvent) {
-    e.preventDefault(); setBusy(true); setError('');
-    const result = await api<Me>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
-    setBusy(false);
-    if (!result.ok) return setError(result.error.message);
-    onLogin(result.data);
-  }
-  return <main className="login"><form className="login-card" onSubmit={submit}>
-    <div className="eyebrow">Aquiero Instance Management</div>
-    <h1>DMM</h1><p>Direct Model Management</p>
-    <label>Username<input value={username} onChange={e=>setUsername(e.target.value)} autoComplete="username" /></label>
-    <label>Password<input value={password} onChange={e=>setPassword(e.target.value)} type="password" autoComplete="current-password" autoFocus /></label>
-    {error && <div className="error">{error}</div>}
-    <button disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-  </form></main>;
-}
-
-function Shell({ me, manifest, onLogout }: { me: Me; manifest: SectionManifest; onLogout: () => void }) {
-  return <div className="shell">
-    <aside className="side"><div className="brand">DMM</div>{manifest.navItems.map(i=><a key={i.id} href={i.path}>{i.label}</a>)}</aside>
-    <main className="main"><header className="top"><div><div className="eyebrow">{manifest.label}</div><h1>{manifest.title}</h1></div><button className="ghost" onClick={onLogout}>Logout {me.user.username}</button></header>
-      <section className="grid">
-        <Card title="Harnesses" value="0" hint="Adapter framework pending next phase" />
-        <Card title="Providers" value="0" hint="Provider registry pending next phase" />
-        <Card title="Enabled Models" value="0" hint="Model catalog pending next phase" />
-      </section>
-      <section className="panel"><h2>Universal section skeleton ready</h2><p>DMM is standalone now and exposes a section manifest for future central dashboard merge.</p><code>/api/section-manifest</code></section>
-    </main>
-  </div>;
-}
-function Card({ title, value, hint }: { title: string; value: string; hint: string }) { return <div className="card"><span>{title}</span><strong>{value}</strong><p>{hint}</p></div>; }
-function App() {
-  const [me, setMe] = useState<Me | null>(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(()=>{ api<Me>('/api/auth/me').then(r=>{ if(r.ok) setMe(r.data); setLoading(false); }); }, []);
-  async function logout() { if (me) await api('/api/auth/logout', { method: 'POST', headers: { 'x-csrf-token': me.csrfToken } }); setMe(null); }
-  if (loading) return <div className="loading">Loading DMM…</div>;
-  return me ? <Shell me={me} manifest={dmmSectionManifest} onLogout={logout}/> : <LoginPage onLogin={setMe}/>;
-}
-
-createRoot(document.getElementById('root')!).render(<App />);
+type Me = { user: AuthUser; csrfToken: string }; type Api<T> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } }; type Harness = { id:string; label:string; status:string; capabilities:Record<string,boolean>; updatedAt:string };
+async function api<T>(path: string, init?: RequestInit): Promise<Api<T>> { const res = await fetch(path, { credentials: 'same-origin', headers: { 'content-type': 'application/json', ...(init?.headers || {}) }, ...init }); return res.json(); }
+function LoginPage({ onLogin }: { onLogin: (me: Me) => void }) { const [username,setUsername]=useState('admin'),[password,setPassword]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false); async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');const r=await api<Me>('/api/auth/login',{method:'POST',body:JSON.stringify({username,password})});setBusy(false);if(!r.ok)return setError(r.error.message);onLogin(r.data)} return <main className="login"><form className="login-card" onSubmit={submit}><div className="eyebrow">Aquiero Instance Management</div><h1>DMM</h1><p>Direct Model Management</p><label>Username<input value={username} onChange={e=>setUsername(e.target.value)} autoComplete="username" /></label><label>Password<input value={password} onChange={e=>setPassword(e.target.value)} type="password" autoComplete="current-password" autoFocus /></label>{error&&<div className="error">{error}</div>}<button disabled={busy}>{busy?'Signing in…':'Sign in'}</button></form></main> }
+function ModelBoard({ me, onLogout }: { me: Me; onLogout: () => void }) { const [harnesses,setHarnesses]=useState<Harness[]>([]),[providers,setProviders]=useState<ProviderView[]>([]),[models,setModels]=useState<ModelView[]>([]),[audit,setAudit]=useState<AuditEvent[]>([]),[filter,setFilter]=useState(''),[secretProvider,setSecretProvider]=useState<ProviderView|null>(null),[secret,setSecret]=useState(''),[busy,setBusy]=useState(''); const headers={'x-csrf-token':me.csrfToken}; async function load(){ const [h,p,m,a]=await Promise.all([api<{harnesses:Harness[]}>('/api/harnesses'),api<{providers:ProviderView[]}>('/api/providers'),api<{models:ModelView[]}>('/api/models'),api<{events:AuditEvent[]}>('/api/audit')]); if(h.ok)setHarnesses(h.data.harnesses); if(p.ok)setProviders(p.data.providers); if(m.ok)setModels(m.data.models); if(a.ok)setAudit(a.data.events); } useEffect(()=>{load()},[]); async function refreshHarnesses(){setBusy('refresh');await api('/api/harnesses/refresh',{method:'POST',headers});await load();setBusy('')} async function saveSecret(){ if(!secretProvider)return; setBusy('secret'); const r=await api(`/api/providers/${secretProvider.id}/credential`,{method:'POST',headers,body:JSON.stringify({secret})}); setBusy(''); setSecret(''); setSecretProvider(null); await load(); if(!r.ok) alert(r.error.message); } async function providerAction(id:string, action:string){setBusy(id+action);await api(`/api/providers/${id}/${action}`,{method:'POST',headers});await load();setBusy('')} async function deleteCredential(id:string){setBusy(id+'delete');await api(`/api/providers/${id}/credential`,{method:'DELETE',headers});await load();setBusy('')} async function modelAction(id:string, action:string){setBusy(id+action);await api(`/api/models/${encodeURIComponent(id)}/${action}`,{method:'POST',headers});await load();setBusy('')} async function logout(){await api('/api/auth/logout',{method:'POST',headers});onLogout()} const shown=useMemo(()=>models.filter(m=>(m.displayName+m.providerId+m.id).toLowerCase().includes(filter.toLowerCase())),[models,filter]); return <div className="shell"><aside className="side"><div className="brand">DMM</div>{dmmSectionManifest.navItems.map(i=><a key={i.id} href={`#${i.id}`}>{i.label}</a>)}</aside><main className="main"><header className="top"><div><div className="eyebrow">{dmmSectionManifest.label}</div><h1>{dmmSectionManifest.title}</h1></div><button className="ghost" onClick={logout}>Logout {me.user.username}</button></header><section className="grid"><Card title="Harnesses" value={String(harnesses.length)} hint={`${harnesses.filter(h=>h.status==='online').length} online`} /><Card title="Providers" value={String(providers.length)} hint={`${providers.filter(p=>p.credentialStatus!=='missing').length} with credentials`} /><Card title="Enabled Models" value={String(models.filter(m=>m.status==='enabled').length)} hint={`${models.length} cataloged`} /></section><section className="panel" id="harnesses"><div className="row"><h2>Harnesses</h2><button onClick={refreshHarnesses} disabled={busy==='refresh'}>Refresh</button></div><div className="cards">{harnesses.map(h=><div className="mini" key={h.id}><b>{h.label}</b><Badge text={h.status}/><p>{Object.entries(h.capabilities).filter(([,v])=>v).map(([k])=>k).join(', ')||'no capabilities'}</p></div>)}</div></section><section className="panel" id="providers"><h2>Providers + BYOK</h2><div className="cards">{providers.map(p=><div className="mini" key={p.id}><div className="row"><b>{p.label}</b><Badge text={p.status}/></div><p>Auth: {p.authMethod} · Models: {p.modelCount}</p><p>Credential: {p.credentialStatus}{p.credentialFingerprint?` (${p.credentialFingerprint})`:''}</p><div className="actions"><button onClick={()=>setSecretProvider(p)}>Credential</button><button className="ghost" onClick={()=>providerAction(p.id,p.status==='disabled'?'enable':'disable')}>{p.status==='disabled'?'Enable':'Disable'}</button>{p.credentialStatus!=='missing'&&<button className="ghost" onClick={()=>deleteCredential(p.id)}>Delete key</button>}</div></div>)}</div></section><section className="panel" id="models"><div className="row"><h2>Model Catalog</h2><input className="search" placeholder="Search models" value={filter} onChange={e=>setFilter(e.target.value)}/></div><div className="table">{shown.map(m=><div className="tr" key={m.id}><div><b>{m.displayName}</b><small>{m.id}</small></div><span>{m.providerId}</span><Badge text={m.status}/><span>{m.contextWindow?.toLocaleString()??'—'}</span><button onClick={()=>modelAction(m.id,m.status==='enabled'?'disable':'enable')}>{m.status==='enabled'?'Disable':'Enable'}</button></div>)}</div></section><section className="panel" id="audit"><h2>Recent Audit</h2>{audit.slice(0,12).map(e=><p key={e.id}><b>{e.eventType}</b> · {e.targetType}:{e.targetId} · {new Date(e.createdAt).toLocaleString()}</p>)}</section></main>{secretProvider&&<div className="modal"><div className="modal-card"><h2>Credential for {secretProvider.label}</h2><p>Raw keys are encrypted server-side and never returned to the browser.</p><input type="password" value={secret} onChange={e=>setSecret(e.target.value)} autoFocus placeholder="Paste API key"/><div className="actions"><button onClick={saveSecret} disabled={busy==='secret'}>Save encrypted key</button><button className="ghost" onClick={()=>setSecretProvider(null)}>Cancel</button></div></div></div>}</div> }
+function Card({title,value,hint}:{title:string;value:string;hint:string}){return <div className="card"><span>{title}</span><strong>{value}</strong><p>{hint}</p></div>} function Badge({text}:{text:string}){return <em className={`badge ${text}`}>{text}</em>}
+function App(){const[me,setMe]=useState<Me|null>(null),[loading,setLoading]=useState(true);useEffect(()=>{api<Me>('/api/auth/me').then(r=>{if(r.ok)setMe(r.data);setLoading(false)})},[]);if(loading)return <div className="loading">Loading DMM…</div>;return me?<ModelBoard me={me} onLogout={()=>setMe(null)}/>:<LoginPage onLogin={setMe}/>}
+createRoot(document.getElementById('root')!).render(<App/>);
