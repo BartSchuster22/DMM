@@ -22,7 +22,8 @@ export async function registerApi(app: FastifyInstance, ctx: AppContext): Promis
   app.post('/api/auth/logout', { preHandler: requireAuth(ctx) }, async (request, reply) => { const id = requestSessionId(request, ctx.config.sessionSecret); if (id) destroySession(ctx.db, id); clearSessionCookie(reply, ctx.config.cookieSecure); return ok({ loggedOut: true }); });
   app.get('/api/audit', { preHandler: requireAuth(ctx) }, async () => ok({ events: listAudit(ctx.db) }));
   app.get('/api/harnesses', { preHandler: requireAuth(ctx) }, async () => ok({ harnesses: ctx.adapters.configuredHarnesses() }));
-  app.post('/api/harnesses/refresh', { preHandler: requireAuth(ctx) }, async () => ok({ harnesses: await ctx.adapters.refreshAll('admin') }));
+  app.post('/api/harnesses/refresh', { preHandler: requireAuth(ctx) }, async () => { await ctx.adapters.refreshAll('admin'); return ok({ harnesses: await ctx.adapters.refreshLifecycle('admin') }); });
+  app.post('/api/harnesses/lifecycle/refresh', { preHandler: requireAuth(ctx) }, async () => ok({ harnesses: await ctx.adapters.refreshLifecycle('admin') }));
   app.get('/api/providers', { preHandler: requireAuth(ctx) }, async () => ok({ providers: listProviders(ctx.db) }));
   app.post('/api/providers/:id/enable', { preHandler: requireAuth(ctx) }, async (request) => ok({ provider: setProviderStatus(ctx.db, 'admin', (request.params as any).id, 'available') }));
   app.post('/api/providers/:id/disable', { preHandler: requireAuth(ctx) }, async (request) => ok({ provider: setProviderStatus(ctx.db, 'admin', (request.params as any).id, 'disabled' as ProviderStatus) }));

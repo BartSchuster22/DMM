@@ -12,3 +12,6 @@ export type CredentialStatus = 'missing' | 'saved' | 'healthy' | 'invalid' | 'un
 export type ModelStatus = 'available' | 'enabled' | 'disabled' | 'deprecated' | 'unavailable';
 export type ProviderView = { id: string; label: string; authMethod: string; docsUrl?: string; status: ProviderStatus; credentialStatus: CredentialStatus; credentialFingerprint?: string; modelCount: number; harnesses: string[]; updatedAt: string };
 export type ModelView = { id: string; providerId: string; displayName: string; modality: string; contextWindow?: number; status: ModelStatus; harnesses: string[]; updatedAt: string };
+
+export type AdapterCapabilitiesView = Record<string, boolean>;
+export type HarnessView = { id: string; type: string; label: string; baseUrl: string; enabled: boolean; adapterName: string; status: HarnessStatus; capabilities: AdapterCapabilitiesView; lastSeenAt?: string; updatedAt: string; message?: string; currentVersion?: string; latestVersion?: string; updateAvailable?: boolean; updateChannel?: string; lastVersionCheckedAt?: string; lastUpdateCheckedAt?: string; lastCatalogRefreshAt?: string; lifecycleMessage?: string };

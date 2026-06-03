@@ -130,7 +130,21 @@ export function migrate(db: Db): void {
       updated_at TEXT NOT NULL
     );
   `);
+  addColumnIfMissing(db, 'harnesses', 'current_version', 'TEXT');
+  addColumnIfMissing(db, 'harnesses', 'latest_version', 'TEXT');
+  addColumnIfMissing(db, 'harnesses', 'update_available', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'harnesses', 'update_channel', 'TEXT');
+  addColumnIfMissing(db, 'harnesses', 'last_version_checked_at', 'TEXT');
+  addColumnIfMissing(db, 'harnesses', 'last_update_checked_at', 'TEXT');
+  addColumnIfMissing(db, 'harnesses', 'last_catalog_refresh_at', 'TEXT');
+  addColumnIfMissing(db, 'harnesses', 'lifecycle_message', 'TEXT');
 }
+
+function addColumnIfMissing(db: Db, table: string, column: string, definition: string): void {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!rows.some((row) => row.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
 
 export function nowIso(): string { return new Date().toISOString(); }
 

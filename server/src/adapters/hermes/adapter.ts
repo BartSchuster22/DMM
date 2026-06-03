@@ -1,12 +1,13 @@
-import type { AdapterContext, CredentialValidationResult, DiscoveredModel, DiscoveredProvider, HarnessAdapter, HarnessHealth, InstallCredentialInput, InstallCredentialResult, ValidateCredentialInput } from '../types.js';
+import type { AdapterContext, CredentialValidationResult, DiscoveredModel, DiscoveredProvider, HarnessAdapter, HarnessHealth, HarnessUpdateStatus, HarnessVersion, InstallCredentialInput, InstallCredentialResult, ValidateCredentialInput } from '../types.js';
 import { fetchJsonOrText } from '../http.js';
+import { callHostHelper, parseTextVersion } from '../host-helper.js';
 
 export class HermesAdapter implements HarnessAdapter {
   adapterId = 'hermes';
   harnessType = 'hermes';
 
   capabilities() {
-    return { health: true, providerDiscovery: false, modelDiscovery: true, credentialValidation: false, credentialInstall: false, hotReload: false, oauth: false };
+    return { health: true, providerDiscovery: false, modelDiscovery: true, credentialValidation: false, credentialInstall: false, hotReload: false, oauth: false, version: true, updateStatus: true, updateDryRun: false, updateApply: false, restart: false, catalogRefresh: false };
   }
 
   async health(ctx: AdapterContext): Promise<HarnessHealth> {
@@ -19,8 +20,35 @@ export class HermesAdapter implements HarnessAdapter {
     }
   }
 
+  async version(ctx: AdapterContext): Promise<HarnessVersion> {
+    const checkedAt = new Date().toISOString();
+    const result = await callHostHelper(ctx.harness, 'hermes.version', ctx.timeoutMs * 4);
+    if (!result) return { checkedAt, source: 'unknown', message: 'DMM host helper is not configured' };
+    if (!result.ok) return { checkedAt, source: 'unknown', message: result.error.message, raw: result };
+    const data = result.data as { stdout?: string; currentVersion?: string; commit?: string; message?: string };
+    return { checkedAt, source: 'binary', currentVersion: data.currentVersion ?? parseTextVersion(data.stdout ?? ''), commit: data.commit, message: data.message, raw: data };
+  }
+
+  async updateStatus(ctx: AdapterContext): Promise<HarnessUpdateStatus> {
+    const checkedAt = new Date().toISOString();
+    const result = await callHostHelper(ctx.harness, 'hermes.updateStatus', ctx.timeoutMs * 6);
+    if (!result) return { checkedAt, available: false, message: 'DMM host helper is not configured' };
+    if (!result.ok) return { checkedAt, available: false, message: result.error.message, raw: result };
+    const data = result.data as { stdout?: string; available?: boolean; currentVersion?: string; latestVersion?: string; channel?: string; message?: string };
+    const text = data.stdout ?? data.message ?? '';
+    return {
+      checkedAt,
+      available: data.available ?? /update available|commits behind|behind/i.test(text),
+      currentVersion: data.currentVersion,
+      latestVersion: data.latestVersion,
+      channel: data.channel,
+      source: 'hermes-cli',
+      message: data.message ?? text.split(/\r?\n/).find((line) => /update|behind|latest/i.test(line)) ?? text.trim(),
+      raw: data
+    };
+  }
+
   async discoverProviders(_ctx: AdapterContext): Promise<DiscoveredProvider[]> {
-    // Hermes does not currently expose GET /v1/providers on this instance.
     return [];
   }
 

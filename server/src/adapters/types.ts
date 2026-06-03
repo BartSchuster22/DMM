@@ -1,6 +1,19 @@
 import type { HarnessConfig } from '../config/env.js';
 
-export type AdapterCapabilityKey = 'health' | 'providerDiscovery' | 'modelDiscovery' | 'credentialValidation' | 'credentialInstall' | 'hotReload' | 'oauth';
+export type AdapterCapabilityKey =
+  | 'health'
+  | 'providerDiscovery'
+  | 'modelDiscovery'
+  | 'credentialValidation'
+  | 'credentialInstall'
+  | 'hotReload'
+  | 'oauth'
+  | 'version'
+  | 'updateStatus'
+  | 'updateDryRun'
+  | 'updateApply'
+  | 'restart'
+  | 'catalogRefresh';
 export type AdapterCapabilities = Record<AdapterCapabilityKey, boolean>;
 export type HarnessHealthStatus = 'unknown' | 'online' | 'degraded' | 'offline';
 
@@ -9,6 +22,44 @@ export type HarnessHealth = {
   latencyMs?: number;
   message?: string;
   checkedAt: string;
+  raw?: unknown;
+};
+
+export type HarnessVersion = {
+  currentVersion?: string;
+  build?: string;
+  commit?: string;
+  source?: 'package' | 'git' | 'binary' | 'api' | 'unknown';
+  checkedAt: string;
+  message?: string;
+  raw?: unknown;
+};
+
+export type HarnessUpdateStatus = {
+  available: boolean;
+  currentVersion?: string;
+  latestVersion?: string;
+  channel?: string;
+  source?: string;
+  checkedAt: string;
+  message?: string;
+  raw?: unknown;
+};
+
+export type HarnessUpdatePlan = {
+  steps: string[];
+  risks: string[];
+  requiresRestart: boolean;
+  estimatedDowntime?: string;
+  raw?: unknown;
+};
+
+export type HarnessUpdateResult = {
+  status: 'updated' | 'skipped' | 'failed' | 'rolled_back';
+  fromVersion?: string;
+  toVersion?: string;
+  restarted: boolean;
+  healthAfter?: HarnessHealth;
   raw?: unknown;
 };
 
@@ -30,6 +81,8 @@ export interface HarnessAdapter {
   discoverModels(ctx: AdapterContext, providerId?: string): Promise<DiscoveredModel[]>;
   validateCredential(ctx: AdapterContext, input: ValidateCredentialInput): Promise<CredentialValidationResult>;
   installCredential(ctx: AdapterContext, input: InstallCredentialInput): Promise<InstallCredentialResult>;
+  version?(ctx: AdapterContext): Promise<HarnessVersion>;
+  updateStatus?(ctx: AdapterContext): Promise<HarnessUpdateStatus>;
 }
 
 export type HarnessView = {
@@ -44,6 +97,14 @@ export type HarnessView = {
   lastSeenAt?: string;
   updatedAt: string;
   message?: string;
+  currentVersion?: string;
+  latestVersion?: string;
+  updateAvailable?: boolean;
+  updateChannel?: string;
+  lastVersionCheckedAt?: string;
+  lastUpdateCheckedAt?: string;
+  lastCatalogRefreshAt?: string;
+  lifecycleMessage?: string;
 };
 
 export const unsupportedCapabilities: AdapterCapabilities = {
@@ -53,5 +114,11 @@ export const unsupportedCapabilities: AdapterCapabilities = {
   credentialValidation: false,
   credentialInstall: false,
   hotReload: false,
-  oauth: false
+  oauth: false,
+  version: false,
+  updateStatus: false,
+  updateDryRun: false,
+  updateApply: false,
+  restart: false,
+  catalogRefresh: false
 };

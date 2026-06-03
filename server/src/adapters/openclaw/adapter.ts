@@ -1,12 +1,13 @@
-import type { AdapterContext, CredentialValidationResult, DiscoveredModel, DiscoveredProvider, HarnessAdapter, HarnessHealth, InstallCredentialInput, InstallCredentialResult, ValidateCredentialInput } from '../types.js';
+import type { AdapterContext, CredentialValidationResult, DiscoveredModel, DiscoveredProvider, HarnessAdapter, HarnessHealth, HarnessUpdateStatus, HarnessVersion, InstallCredentialInput, InstallCredentialResult, ValidateCredentialInput } from '../types.js';
 import { fetchJsonOrText } from '../http.js';
+import { callHostHelper, parseTextVersion } from '../host-helper.js';
 
 export class OpenClawAdapter implements HarnessAdapter {
   adapterId = 'openclaw';
   harnessType = 'openclaw';
 
   capabilities() {
-    return { health: true, providerDiscovery: false, modelDiscovery: false, credentialValidation: false, credentialInstall: false, hotReload: false, oauth: false };
+    return { health: true, providerDiscovery: false, modelDiscovery: false, credentialValidation: false, credentialInstall: false, hotReload: false, oauth: false, version: true, updateStatus: true, updateDryRun: false, updateApply: false, restart: false, catalogRefresh: false };
   }
 
   async health(ctx: AdapterContext): Promise<HarnessHealth> {
@@ -19,13 +20,39 @@ export class OpenClawAdapter implements HarnessAdapter {
     }
   }
 
+  async version(ctx: AdapterContext): Promise<HarnessVersion> {
+    const checkedAt = new Date().toISOString();
+    const result = await callHostHelper(ctx.harness, 'openclaw.version', ctx.timeoutMs * 4);
+    if (!result) return { checkedAt, source: 'unknown', message: 'DMM host helper is not configured' };
+    if (!result.ok) return { checkedAt, source: 'unknown', message: result.error.message, raw: result };
+    const data = result.data as { stdout?: string; currentVersion?: string; commit?: string; message?: string };
+    return { checkedAt, source: 'binary', currentVersion: data.currentVersion ?? parseTextVersion(data.stdout ?? ''), commit: data.commit, message: data.message, raw: data };
+  }
+
+  async updateStatus(ctx: AdapterContext): Promise<HarnessUpdateStatus> {
+    const checkedAt = new Date().toISOString();
+    const result = await callHostHelper(ctx.harness, 'openclaw.updateStatus', ctx.timeoutMs * 6);
+    if (!result) return { checkedAt, available: false, message: 'DMM host helper is not configured' };
+    if (!result.ok) return { checkedAt, available: false, message: result.error.message, raw: result };
+    const data = result.data as { json?: any; stdout?: string; currentVersion?: string; latestVersion?: string; available?: boolean; channel?: string; message?: string };
+    const j = data.json ?? {};
+    return {
+      checkedAt,
+      available: data.available ?? Boolean(j.availability?.available),
+      currentVersion: data.currentVersion ?? j.currentVersion,
+      latestVersion: data.latestVersion ?? j.availability?.latestVersion ?? j.update?.registry?.latestVersion,
+      channel: data.channel ?? j.channel?.value,
+      source: 'openclaw-cli',
+      message: data.message ?? (j.availability?.available ? `Update available: ${j.availability?.latestVersion ?? 'yes'}` : 'No update available'),
+      raw: data
+    };
+  }
+
   async discoverProviders(_ctx: AdapterContext): Promise<DiscoveredProvider[]> {
-    // Current probed /v1/providers route returns SPA fallback, not a JSON management API.
     return [];
   }
 
   async discoverModels(_ctx: AdapterContext): Promise<DiscoveredModel[]> {
-    // Current probed /v1/models route is auth-gated. Auth mapping belongs inside this adapter in a later phase.
     return [];
   }
 
