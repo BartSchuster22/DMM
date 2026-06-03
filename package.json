@@ -1,0 +1,1 @@
+{"scripts":{"dev":"npm run dev -w @dmm/server","build":"npm run build -ws","typecheck":"npm run typecheck -ws","lint":"npm run lint -ws","test":"npm run test -ws --if-present"},"workspaces":["shared","server","web"],"devDependencies":{"typescript":"^5.9.3"},"engines":{"node":">=22"}}
