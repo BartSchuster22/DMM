@@ -63,8 +63,13 @@ export type HarnessUpdateResult = {
   raw?: unknown;
 };
 
-export type DiscoveredProvider = { id: string; label: string; harnessProviderId: string; authMethod: string; status?: string; metadata?: Record<string, unknown> };
-export type DiscoveredModel = { id: string; providerId: string; displayName: string; harnessModelId: string; status?: string; modality?: string; contextWindow?: number; metadata?: Record<string, unknown> };
+export type NormalizedDiscoveredProvider = { id: string; label: string; harnessProviderId: string; authMethod: string; status?: string; metadata?: Record<string, unknown> };
+export type NormalizedDiscoveredModel = { id: string; providerId: string; displayName: string; harnessModelId: string; status?: string; modality?: string; contextWindow?: number; metadata?: Record<string, unknown> };
+export type DiscoveredProvider = NormalizedDiscoveredProvider;
+export type DiscoveredModel = NormalizedDiscoveredModel;
+export type NormalizedHarnessCredentialState = { providerId: string; harnessProviderId: string; status: 'missing' | 'saved' | 'healthy' | 'invalid' | 'unsupported' | 'error'; message?: string; lastValidatedAt?: string; metadata?: Record<string, unknown> };
+export type RemoveCredentialInput = { providerId: string; secretRef?: string };
+export type RemoveCredentialResult = { status: 'removed' | 'unsupported' | 'error'; message?: string };
 export type HarnessCatalogSnapshotInput = {
   harnessId: string;
   harnessType: string;
@@ -75,26 +80,29 @@ export type HarnessCatalogSnapshotInput = {
   models: DiscoveredModel[];
   raw?: unknown;
 };
-export type ValidateCredentialInput = { providerId: string; secretRef: string };
+export type ValidateCredentialInput = { providerId: string; secretRef?: string; secret?: string };
 export type CredentialValidationResult = { status: 'healthy' | 'invalid' | 'unsupported' | 'error'; message?: string };
-export type InstallCredentialInput = { providerId: string; secretRef: string };
+export type InstallCredentialInput = { providerId: string; secretRef?: string; secret?: string; label?: string };
 export type InstallCredentialResult = { status: 'installed' | 'unsupported' | 'error'; message?: string };
 
 export type AdapterContext = { harness: HarnessConfig; timeoutMs: number };
 
-export interface HarnessAdapter {
+export interface HarnessDmmAdapter {
   adapterId: string;
   harnessType: string;
   capabilities(): AdapterCapabilities;
   health(ctx: AdapterContext): Promise<HarnessHealth>;
-  discoverProviders(ctx: AdapterContext): Promise<DiscoveredProvider[]>;
-  discoverModels(ctx: AdapterContext, providerId?: string): Promise<DiscoveredModel[]>;
+  discoverProviders(ctx: AdapterContext): Promise<NormalizedDiscoveredProvider[]>;
+  discoverModels(ctx: AdapterContext, providerId?: string): Promise<NormalizedDiscoveredModel[]>;
+  getCredentialState?(ctx: AdapterContext): Promise<NormalizedHarnessCredentialState[]>;
   validateCredential(ctx: AdapterContext, input: ValidateCredentialInput): Promise<CredentialValidationResult>;
   installCredential(ctx: AdapterContext, input: InstallCredentialInput): Promise<InstallCredentialResult>;
+  removeCredential?(ctx: AdapterContext, input: RemoveCredentialInput): Promise<RemoveCredentialResult>;
   version?(ctx: AdapterContext): Promise<HarnessVersion>;
   updateStatus?(ctx: AdapterContext): Promise<HarnessUpdateStatus>;
   catalogRefresh?(ctx: AdapterContext): Promise<HarnessCatalogSnapshotInput>;
 }
+export type HarnessAdapter = HarnessDmmAdapter;
 
 
 export type HarnessView = {

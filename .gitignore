@@ -1,9 +1,8 @@
-node_modules
-dist
+node_modules/
+dist/
+qa-reports/
+backups/
 .env
-.env.local
-data
-*.sqlite
-*.sqlite-*
-.DS_Store
+*.log
+data/
 .admin-password

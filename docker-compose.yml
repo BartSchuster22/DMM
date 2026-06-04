@@ -6,8 +6,17 @@ services:
     env_file:
       - .env
     network_mode: host
+    stop_grace_period: 30s
     volumes:
       - ./data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    labels:
+      com.aquiero.service: "dmm"
+      com.aquiero.role: "direct-model-management"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s

@@ -2,7 +2,7 @@ import type { HarnessConfig } from '../config/env.js';
 
 export type HostHelperResult = { ok: true; operation: string; data: unknown } | { ok: false; operation: string; error: { code: string; message: string }; data?: unknown };
 
-export async function callHostHelper(harness: HarnessConfig, operation: string, timeoutMs: number): Promise<HostHelperResult | null> {
+export async function callHostHelper(harness: HarnessConfig, operation: string, timeoutMs: number, payload: Record<string, unknown> = {}): Promise<HostHelperResult | null> {
   const url = process.env.DMM_HOST_HELPER_URL;
   const token = process.env.DMM_HOST_HELPER_TOKEN;
   if (!url || !token) return null;
@@ -13,7 +13,7 @@ export async function callHostHelper(harness: HarnessConfig, operation: string, 
       method: 'POST',
       signal: controller.signal,
       headers: { 'content-type': 'application/json', 'x-dmm-helper-token': token },
-      body: JSON.stringify({ harnessId: harness.id })
+      body: JSON.stringify({ harnessId: harness.id, ...payload })
     });
     const body = await res.json().catch(() => null) as HostHelperResult | null;
     if (body) return body;

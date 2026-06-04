@@ -44,13 +44,20 @@ export function loadConfig(): AppConfig {
   mkdirSync(dirname(dbPath), { recursive: true });
   const nodeEnv = process.env.NODE_ENV ?? 'development';
   const publicUrl = process.env.DMM_PUBLIC_URL ?? `http://127.0.0.1:${process.env.PORT ?? 3000}`;
+  const sessionSecret = process.env.DMM_SESSION_SECRET;
+  const masterKey = process.env.DMM_MASTER_KEY;
+  if (nodeEnv === 'production') {
+    if (!sessionSecret || sessionSecret.length < 32) throw new Error('DMM_SESSION_SECRET must be set to at least 32 chars in production');
+    if (!masterKey || masterKey.length < 32) throw new Error('DMM_MASTER_KEY must be set to at least 32 chars in production');
+    if (!process.env.DMM_ADMIN_PASSWORD) throw new Error('DMM_ADMIN_PASSWORD must be set in production');
+  }
   return {
     nodeEnv,
     port: Number(process.env.PORT ?? 3000),
     publicUrl,
     dbPath,
-    sessionSecret: process.env.DMM_SESSION_SECRET ?? randomBytes(32).toString('hex'),
-    masterKey: process.env.DMM_MASTER_KEY ?? randomBytes(32).toString('hex'),
+    sessionSecret: sessionSecret ?? randomBytes(32).toString('hex'),
+    masterKey: masterKey ?? randomBytes(32).toString('hex'),
     adminUser: process.env.DMM_ADMIN_USER ?? 'admin',
     adminPassword: process.env.DMM_ADMIN_PASSWORD,
     cookieSecure: publicUrl.startsWith('https://') || nodeEnv === 'production',

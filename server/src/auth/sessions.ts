@@ -2,6 +2,7 @@ import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Db } from '../db/sqlite.js';
 import { nowIso } from '../db/sqlite.js';
+import { constantTimeEqual } from '../security.js';
 
 export const sessionCookie = 'dmm_session';
 export const csrfHeader = 'x-csrf-token';
@@ -15,10 +16,11 @@ export function unsign(signed: string | undefined, secret: string): string | nul
   const idx = signed.lastIndexOf('.');
   if (idx < 0) return null;
   const value = signed.slice(0, idx);
-  return sign(value, secret) === signed ? value : null;
+  return constantTimeEqual(sign(value, secret), signed) ? value : null;
 }
 
 export function createSession(db: Db, username: string): { id: string; csrfToken: string; expiresAt: string } {
+  pruneExpiredSessions(db);
   const id = randomUUID();
   const csrfToken = randomBytes(24).toString('base64url');
   const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 12).toISOString();
@@ -38,13 +40,17 @@ export function getSession(db: Db, id: string): { id: string; username: string; 
 }
 
 export function setSessionCookie(reply: FastifyReply, signedId: string, secure: boolean): void {
-  reply.setCookie(sessionCookie, signedId, { path: '/', httpOnly: true, sameSite: 'lax', secure, maxAge: 60 * 60 * 12 });
+  reply.setCookie(sessionCookie, signedId, { path: '/', httpOnly: true, sameSite: 'strict', secure, maxAge: 60 * 60 * 12 });
 }
 
 export function clearSessionCookie(reply: FastifyReply, secure: boolean): void {
-  reply.clearCookie(sessionCookie, { path: '/', httpOnly: true, sameSite: 'lax', secure });
+  reply.clearCookie(sessionCookie, { path: '/', httpOnly: true, sameSite: 'strict', secure });
 }
 
 export function requestSessionId(request: FastifyRequest, secret: string): string | null {
   return unsign((request.cookies as Record<string, string | undefined>)[sessionCookie], secret);
+}
+
+export function pruneExpiredSessions(db: Db): void {
+  db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(nowIso());
 }
