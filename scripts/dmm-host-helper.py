@@ -244,6 +244,40 @@ def validate_api_key(provider, secret):
         return {'status': 'unsupported', 'message': 'No BYOK API-key validation is mapped for provider'}
     return {'status': 'healthy', 'message': 'Credential passed local BYOK format validation'}
 
+
+
+def op_fmr_v2_repo_status(body=None):
+    body = body or {}
+    requested = str(body.get('repoPath') or '').strip()
+    repo = Path(requested or os.environ.get('DMM_FMR_V2_REPO', '/home/herman/freemodelrouterv2'))
+    allowed = Path(os.environ.get('DMM_FMR_V2_REPO', '/home/herman/freemodelrouterv2')).resolve()
+    try:
+        repo_resolved = repo.resolve()
+    except Exception:
+        repo_resolved = repo
+    if repo_resolved != allowed:
+        return {'repoPath': str(repo), 'exists': False, 'error': 'repo path is not allowlisted'}
+    if not repo.exists():
+        return {'repoPath': str(repo), 'exists': False}
+    def git(args, timeout=15):
+        return run('git -C ' + shlex.quote(str(repo)) + ' ' + args, timeout)
+    branch = git('branch --show-current')
+    status = git('status --short')
+    log = git("log -1 --format='commit=%H%nshort=%h%nauthorDate=%aI%ncommitterDate=%cI%nsubject=%s'")
+    remote = git('remote get-url origin')
+    data = {'repoPath': str(repo), 'exists': True, 'clean': (status.get('stdout') or '') == '', 'branch': branch.get('stdout') or None, 'remote': remote.get('stdout') or None}
+    for line in (log.get('stdout') or '').splitlines():
+        if '=' in line:
+            k, v = line.split('=', 1)
+            data[k] = v
+    pyproject = repo / 'pyproject.toml'
+    if pyproject.exists():
+        text = pyproject.read_text(encoding='utf-8', errors='replace')
+        m = re.search(r'^version\s*=\s*["\']([^"\']+)["\']', text, re.M)
+        if m:
+            data['packageVersion'] = m.group(1)
+    return data
+
 def op_hermes_validate_credential(body=None):
     body = body or {}
     return validate_api_key(str(body.get('providerId') or ''), str(body.get('secret') or ''))
@@ -275,6 +309,7 @@ OPS = {
     'hermes.catalogStatus': op_hermes_catalog_status,
     'hermes.validateCredential': op_hermes_validate_credential,
     'hermes.installCredential': op_hermes_install_credential,
+    'fmr.v2RepoStatus': op_fmr_v2_repo_status,
 }
 
 class Handler(BaseHTTPRequestHandler):

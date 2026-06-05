@@ -115,8 +115,34 @@ function HarnessesSection({ harnesses, busy, onRefresh, onLifecycle, onCatalog }
             <span>Update checked</span><b>{ts(h.lastUpdateCheckedAt)}</b>
           </div>
           {h.lifecycleMessage && <div className="note">{h.lifecycleMessage}</div>}
+          {h.type === 'free-model-router' && <FmrVisibilityDetails harness={h} allHarnesses={harnesses} />}
         </div>
       ))}</div>
+    </div>
+  );
+}
+
+
+function FmrVisibilityDetails({ harness, allHarnesses }: { harness: HarnessView; allHarnesses: HarnessView[] }) {
+  const cfg = harness.config || {};
+  const supported = Array.isArray(cfg.supportedHarnesses) ? cfg.supportedHarnesses.map(String) : [];
+  const compatibility = allHarnesses.filter(h => h.id !== harness.id && h.type !== 'free-model-router');
+  return (
+    <div className="subsection" style={{ marginTop: 12 }}>
+      <h3>FMRv2 visibility</h3>
+      <div className="kv">
+        <span>Service module</span><b>{cfg.serviceModule === false ? 'no' : 'separate'}</b>
+        <span>Availability</span><b>{String(cfg.availability || 'active')}</b>
+        <span>Role</span><b>curated free-model policy/ranking source</b>
+        <span>Fallback placement owner</span><b>{String(cfg.fallbackPlacementOwner || 'agent-management')}</b>
+      </div>
+      <div className="item-meta" style={{ marginTop: 10 }}>DMM shows FMRv2 availability and harness capability. Per-agent fallback-chain order is not decided here.</div>
+      <div className="table-rows" style={{ marginTop: 10 }}>
+        {compatibility.map(target => {
+          const state = supported.includes(target.id) ? 'supported' : 'unknown';
+          return <div className="table-row" key={target.id}><div className="info"><strong>{target.label}</strong><p>{target.id} | {target.type}</p></div><Badge text={state} /></div>;
+        })}
+      </div>
     </div>
   );
 }

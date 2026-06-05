@@ -114,6 +114,7 @@ export type HarnessView = {
   adapterName: string;
   status: HarnessHealthStatus;
   capabilities: AdapterCapabilities;
+  config?: Record<string, unknown>;
   lastSeenAt?: string;
   updatedAt: string;
   message?: string;

@@ -3,6 +3,7 @@ import { insertAudit, nowIso } from '../db/sqlite.js';
 import type { HarnessConfig } from '../config/env.js';
 import { HermesAdapter } from './hermes/adapter.js';
 import { OpenClawAdapter } from './openclaw/adapter.js';
+import { FreeModelRouterAdapter } from './free-model-router/adapter.js';
 import type { AdapterCapabilities, HarnessAdapter, HarnessView, CredentialValidationResult, InstallCredentialResult } from './types.js';
 import { unsupportedCapabilities } from './types.js';
 import { upsertDiscoveredModel } from '../catalog/catalog.js';
@@ -22,6 +23,7 @@ export class AdapterRegistry {
   constructor(private db: Db, private harnesses: HarnessConfig[], private timeoutMs = 2500) {
     this.register(new HermesAdapter());
     this.register(new OpenClawAdapter());
+    this.register(new FreeModelRouterAdapter());
     this.seedHarnesses();
   }
 
@@ -192,7 +194,7 @@ export class AdapterRegistry {
   }
 
   private rowToView(r: any): HarnessView {
-    return { id: r.id, type: r.type, label: r.label, baseUrl: r.base_url, enabled: !!r.enabled, adapterName: r.adapter_name, status: r.status, capabilities: JSON.parse(r.capabilities_json) as AdapterCapabilities, lastSeenAt: r.last_seen_at ?? undefined, updatedAt: r.updated_at, currentVersion: r.current_version ?? undefined, latestVersion: r.latest_version ?? undefined, updateAvailable: !!r.update_available, updateChannel: r.update_channel ?? undefined, lastVersionCheckedAt: r.last_version_checked_at ?? undefined, lastUpdateCheckedAt: r.last_update_checked_at ?? undefined, lastCatalogRefreshAt: r.last_catalog_refresh_at ?? undefined, lifecycleMessage: r.lifecycle_message ?? undefined };
+    return { id: r.id, type: r.type, label: r.label, baseUrl: r.base_url, enabled: !!r.enabled, adapterName: r.adapter_name, status: r.status, capabilities: JSON.parse(r.capabilities_json) as AdapterCapabilities, config: r.config_json ? JSON.parse(r.config_json) as Record<string, unknown> : undefined, lastSeenAt: r.last_seen_at ?? undefined, updatedAt: r.updated_at, currentVersion: r.current_version ?? undefined, latestVersion: r.latest_version ?? undefined, updateAvailable: !!r.update_available, updateChannel: r.update_channel ?? undefined, lastVersionCheckedAt: r.last_version_checked_at ?? undefined, lastUpdateCheckedAt: r.last_update_checked_at ?? undefined, lastCatalogRefreshAt: r.last_catalog_refresh_at ?? undefined, lifecycleMessage: r.lifecycle_message ?? undefined };
   }
 }
 

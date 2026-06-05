@@ -28,7 +28,8 @@ export type AppConfig = {
 
 const defaultHarnesses: HarnessConfig[] = [
   { id: 'hermes', type: 'hermes', label: 'Hermes', baseUrl: 'http://127.0.0.1:8080', enabled: true, adapterName: 'hermes' },
-  { id: 'openclaw', type: 'openclaw', label: 'OpenClaw', baseUrl: 'http://127.0.0.1:18789', enabled: true, adapterName: 'openclaw' }
+  { id: 'openclaw', type: 'openclaw', label: 'OpenClaw', baseUrl: 'http://127.0.0.1:18789', enabled: true, adapterName: 'openclaw' },
+  { id: 'free-model-router-v2', type: 'free-model-router', label: 'Free Model Router V2', baseUrl: 'http://127.0.0.1:18082', enabled: true, adapterName: 'free-model-router', config: { repoPath: '/home/herman/freemodelrouterv2', serviceModule: true, availability: 'active', mode: 'read_only_policy_provider', fallbackPlacementOwner: 'agent-management', supportedHarnesses: ['hermes', 'openclaw'] } }
 ];
 
 function loadHarnesses(): HarnessConfig[] {
