@@ -1,4 +1,4 @@
-import type { AdapterContext, CredentialValidationResult, DiscoveredModel, DiscoveredProvider, HarnessAdapter, HarnessCatalogSnapshotInput, HarnessHealth, HarnessVersion, InstallCredentialInput, InstallCredentialResult, ValidateCredentialInput } from '../types.js';
+import type { AdapterContext, CredentialValidationResult, DiscoveredModel, DiscoveredProvider, HarnessAdapter, HarnessCatalogSnapshotInput, HarnessHealth, HarnessOperationControl, HarnessOperationResult, HarnessVersion, InstallCredentialInput, InstallCredentialResult, ValidateCredentialInput } from '../types.js';
 import { fetchJsonOrText } from '../http.js';
 import { callHostHelper } from '../host-helper.js';
 
@@ -162,6 +162,33 @@ export class FreeModelRouterAdapter implements HarnessAdapter {
     };
   }
 
+
+  listOperations(ctx: AdapterContext): HarnessOperationControl[] {
+    const hasToken = !!this.machineToken(ctx);
+    const operations: HarnessOperationControl[] = [
+      { id: 'status', label: 'Read service status', description: 'Read FMRv2 service/database status without changing data.', method: 'GET', destructive: false, requiresToken: false },
+      { id: 'hardening-report', label: 'Hardening report', description: 'Read FMRv2 production hardening/readiness report.', method: 'GET', destructive: false, requiresToken: true },
+      { id: 'openrouter-sync', label: 'Sync OpenRouter catalog', description: 'Ask FMRv2 to refresh its OpenRouter source catalog and classification inputs.', method: 'POST', destructive: false, requiresToken: true },
+      { id: 'capability-verify', label: 'Verify capabilities', description: 'Run FMRv2 capability verification for free model candidates.', method: 'POST', destructive: false, requiresToken: true },
+      { id: 'rankings-generate', label: 'Generate rankings', description: 'Generate and persist FMRv2 free-model rankings.', method: 'POST', destructive: false, requiresToken: true },
+      { id: 'probe-free-models', label: 'Probe free models', description: 'Run a bounded FMRv2 probe over free model candidates.', method: 'POST', destructive: false, requiresToken: true }
+    ];
+    return operations.map((op) => ({ ...op, description: op.requiresToken && !hasToken ? `${op.description} Machine token is not configured in DMM.` : op.description }));
+  }
+
+  async runOperation(ctx: AdapterContext, operationId: string, input: Record<string, unknown> = {}): Promise<HarnessOperationResult> {
+    const operation = this.listOperations(ctx).find((op) => op.id === operationId);
+    if (!operation) return { operationId, status: 'unsupported', message: 'FMRv2 operation is not allowlisted by the DMM adapter.' };
+    if (operation.requiresToken && !this.machineToken(ctx)) return { operationId, status: 'unsupported', message: 'FMRv2 machine token is not configured in DMM.' };
+    const started = Date.now();
+    const body = this.operationBody(operationId, input);
+    const response = operation.method === 'GET'
+      ? await this.fetchMaybeAuthed(ctx, this.operationPath(operationId), 'GET')
+      : await this.fetchMaybeAuthed(ctx, this.operationPath(operationId), 'POST', body);
+    if (!response?.ok) return { operationId, status: 'error', message: response?.message ?? 'FMRv2 operation failed', data: response?.body };
+    return { operationId, status: 'completed', message: `${operation.label} completed in ${Date.now() - started}ms`, data: response.body };
+  }
+
   async validateCredential(_ctx: AdapterContext, _input: ValidateCredentialInput): Promise<CredentialValidationResult> {
     return { status: 'unsupported', message: 'FMRv2 adapter is read-only; credentials stay with provider/harness adapters.' };
   }
@@ -185,6 +212,53 @@ export class FreeModelRouterAdapter implements HarnessAdapter {
     }
   }
 
+
+  private operationPath(operationId: string): string {
+    const paths: Record<string, string> = {
+      'status': '/v1/status',
+      'hardening-report': '/v1/hardening/report',
+      'openrouter-sync': '/v1/providers/openrouter/sync',
+      'capability-verify': '/v1/capabilities/verify',
+      'rankings-generate': '/v1/rankings/generate',
+      'probe-free-models': '/v1/probes/free'
+    };
+    return paths[operationId] ?? '/v1/status';
+  }
+
+  private operationBody(operationId: string, input: Record<string, unknown>): Record<string, unknown> {
+    if (operationId === 'capability-verify') return { limit: clampNumber(input.limit, 1, 200, 50), ...(typeof input.canonical_id === 'string' ? { canonical_id: input.canonical_id } : {}) };
+    if (operationId === 'rankings-generate') return { limit: clampNumber(input.limit, 1, 500, 50), ...(typeof input.consumer_id === 'string' ? { consumer_id: input.consumer_id } : {}), ...(typeof input.constraints === 'object' && input.constraints ? { constraints: input.constraints } : {}) };
+    if (operationId === 'probe-free-models') return { limit: clampNumber(input.limit, 1, 50, 10), prompt: typeof input.prompt === 'string' ? input.prompt.slice(0, 2000) : 'Reply with OK.', ...(typeof input.canonical_id === 'string' ? { canonical_id: input.canonical_id } : {}) };
+    if (operationId === 'openrouter-sync') return typeof input.payload === 'object' && input.payload ? { payload: input.payload } : {};
+    return {};
+  }
+
+  private machineToken(ctx: AdapterContext): string | undefined {
+    return typeof ctx.harness.config?.machineToken === 'string' ? ctx.harness.config.machineToken : process.env.DMM_FMR_V2_TOKEN;
+  }
+
+  private async fetchMaybeAuthed(ctx: AdapterContext, path: string, method: 'GET' | 'POST', body?: Record<string, unknown>): Promise<{ ok: boolean; body?: unknown; message?: string } | undefined> {
+    const token = this.machineToken(ctx);
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), ctx.timeoutMs * 4);
+      try {
+        const res = await fetch(`${ctx.harness.baseUrl.replace(/\/$/, '')}${path}`, {
+          method,
+          signal: controller.signal,
+          headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(body ? { 'content-type': 'application/json' } : {}) },
+          ...(body ? { body: JSON.stringify(body) } : {})
+        });
+        const parsed = await res.json().catch(() => null);
+        return { ok: res.ok, body: parsed, message: `HTTP ${res.status}` };
+      } finally {
+        clearTimeout(timeout);
+      }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : 'FMRv2 operation request failed' };
+    }
+  }
+
   private async fetchAuthed(ctx: AdapterContext, path: string): Promise<{ ok: boolean; body?: unknown; message?: string } | undefined> {
     const token = typeof ctx.harness.config?.machineToken === 'string' ? ctx.harness.config.machineToken : process.env.DMM_FMR_V2_TOKEN;
     if (!token) return undefined;
@@ -205,4 +279,10 @@ export class FreeModelRouterAdapter implements HarnessAdapter {
       return { ok: false, message: error instanceof Error ? error.message : 'FMRv2 API request failed' };
     }
   }
+}
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
 }

@@ -4,7 +4,7 @@ import type { HarnessConfig } from '../config/env.js';
 import { HermesAdapter } from './hermes/adapter.js';
 import { OpenClawAdapter } from './openclaw/adapter.js';
 import { FreeModelRouterAdapter } from './free-model-router/adapter.js';
-import type { AdapterCapabilities, HarnessAdapter, HarnessView, CredentialValidationResult, InstallCredentialResult } from './types.js';
+import type { AdapterCapabilities, HarnessAdapter, HarnessOperationResult, HarnessView, CredentialValidationResult, InstallCredentialResult } from './types.js';
 import { unsupportedCapabilities } from './types.js';
 import { upsertDiscoveredModel } from '../catalog/catalog.js';
 import { storeCatalogSnapshot } from '../catalog/snapshots.js';
@@ -134,6 +134,20 @@ export class AdapterRegistry {
     return { lifecycle: listCatalogLifecycle(this.db), refreshed, skipped };
   }
 
+
+  async runHarnessOperation(actor: string, harnessId: string, operationId: string, input?: Record<string, unknown>): Promise<HarnessOperationResult> {
+    const harness = this.harnesses.find((h) => h.id === harnessId);
+    const adapter = harness ? this.adapters.get(harness.adapterName) : undefined;
+    if (!harness || !adapter || !harness.enabled || !adapter.runOperation) {
+      const result: HarnessOperationResult = { operationId, status: 'unsupported', message: 'Harness operation is unsupported, disabled, or adapter is missing' };
+      insertAudit(this.db, { eventType: 'harness.operation_unsupported', actor, targetType: 'harness', targetId: harnessId, payload: result });
+      return result;
+    }
+    const result = await adapter.runOperation({ harness, timeoutMs: this.timeoutMs }, operationId, input);
+    insertAudit(this.db, { eventType: 'harness.operation_run', actor, targetType: 'harness', targetId: harnessId, payload: { operationId, status: result.status, message: result.message } });
+    return result;
+  }
+
   async validateProviderCredential(actor: string, providerId: string, secret: string): Promise<ProviderCredentialOperationResult> {
     return this.providerCredentialOperation(actor, providerId, secret, false);
   }
@@ -194,7 +208,10 @@ export class AdapterRegistry {
   }
 
   private rowToView(r: any): HarnessView {
-    return { id: r.id, type: r.type, label: r.label, baseUrl: r.base_url, enabled: !!r.enabled, adapterName: r.adapter_name, status: r.status, capabilities: JSON.parse(r.capabilities_json) as AdapterCapabilities, config: r.config_json ? JSON.parse(r.config_json) as Record<string, unknown> : undefined, lastSeenAt: r.last_seen_at ?? undefined, updatedAt: r.updated_at, currentVersion: r.current_version ?? undefined, latestVersion: r.latest_version ?? undefined, updateAvailable: !!r.update_available, updateChannel: r.update_channel ?? undefined, lastVersionCheckedAt: r.last_version_checked_at ?? undefined, lastUpdateCheckedAt: r.last_update_checked_at ?? undefined, lastCatalogRefreshAt: r.last_catalog_refresh_at ?? undefined, lifecycleMessage: r.lifecycle_message ?? undefined };
+    const config = r.config_json ? JSON.parse(r.config_json) as Record<string, unknown> : undefined;
+    const adapter = this.adapters.get(r.adapter_name);
+    const harness: HarnessConfig = { id: r.id, type: r.type, label: r.label, baseUrl: r.base_url, enabled: !!r.enabled, adapterName: r.adapter_name, config };
+    return { id: r.id, type: r.type, label: r.label, baseUrl: r.base_url, enabled: !!r.enabled, adapterName: r.adapter_name, status: r.status, capabilities: JSON.parse(r.capabilities_json) as AdapterCapabilities, config, operations: adapter?.listOperations ? adapter.listOperations({ harness, timeoutMs: this.timeoutMs }) : undefined, lastSeenAt: r.last_seen_at ?? undefined, updatedAt: r.updated_at, currentVersion: r.current_version ?? undefined, latestVersion: r.latest_version ?? undefined, updateAvailable: !!r.update_available, updateChannel: r.update_channel ?? undefined, lastVersionCheckedAt: r.last_version_checked_at ?? undefined, lastUpdateCheckedAt: r.last_update_checked_at ?? undefined, lastCatalogRefreshAt: r.last_catalog_refresh_at ?? undefined, lifecycleMessage: r.lifecycle_message ?? undefined };
   }
 }
 

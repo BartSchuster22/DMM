@@ -33,6 +33,7 @@ export async function registerApi(app: FastifyInstance, ctx: AppContext): Promis
   app.post('/api/catalog/lifecycle/refresh', { preHandler: requireAuth(ctx) }, async (request) => ok(await ctx.adapters.refreshUpdateDrivenCatalog(currentUser(ctx, request)?.username ?? 'admin')));
   app.post('/api/catalog/refresh', { preHandler: requireAuth(ctx) }, async (request) => ok({ results: await ctx.adapters.refreshCatalog(currentUser(ctx, request)?.username ?? 'admin') }));
   app.post('/api/harnesses/:id/catalog/refresh', { preHandler: requireAuth(ctx) }, async (request) => ok({ results: await ctx.adapters.refreshCatalog(currentUser(ctx, request)?.username ?? 'admin', sanitizeIdentifier((request.params as any).id, 'harness_id')) }));
+  app.post('/api/harnesses/:id/operations/:operationId', { preHandler: requireAuth(ctx) }, async (request) => ok({ result: await ctx.adapters.runHarnessOperation(currentUser(ctx, request)?.username ?? 'admin', sanitizeIdentifier((request.params as any).id, 'harness_id'), sanitizeIdentifier((request.params as any).operationId, 'operation_id'), (request.body ?? {}) as Record<string, unknown>) }));
   app.get('/api/providers', { preHandler: requireAuth(ctx) }, async () => ok({ providers: listProviders(ctx.db) }));
   app.get('/api/providers/requirements', { preHandler: requireAuth(ctx) }, async () => ok({ requirements: listProviderCredentialRequirements(ctx.db) }));
   app.get('/api/credentials', { preHandler: requireAuth(ctx) }, async () => ok({ credentials: listCredentials(ctx.db) }));

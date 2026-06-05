@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type {
   AuthUser, ProviderView, ModelView, AuditEvent, HarnessView,
   CatalogSnapshotView, CatalogDiffView, ProviderCredentialRequirementView,
-  CatalogLifecycleView, CredentialView, ModelStatus, NormalizedDmmStateView, NormalizedProviderState
+  CatalogLifecycleView, CredentialView, HarnessOperationControlView, ModelStatus, NormalizedDmmStateView, NormalizedProviderState
 } from '@dmm/shared';
 import { dmmSectionManifest } from '@dmm/shared';
 import './styles.css';
@@ -89,8 +89,8 @@ function LoginPage({ onLogin }: { onLogin: (me: Me) => void }) {
   );
 }
 
-function HarnessesSection({ harnesses, busy, onRefresh, onLifecycle, onCatalog }: {
-  harnesses: HarnessView[]; busy: string; onRefresh: () => void; onLifecycle: () => void; onCatalog: () => void;
+function HarnessesSection({ harnesses, busy, onRefresh, onLifecycle, onCatalog, onOperation }: {
+  harnesses: HarnessView[]; busy: string; onRefresh: () => void; onLifecycle: () => void; onCatalog: () => void; onOperation: (harnessId: string, operation: HarnessOperationControlView) => void;
 }) {
   return (
     <div className="panel" id="harnesses">
@@ -115,7 +115,7 @@ function HarnessesSection({ harnesses, busy, onRefresh, onLifecycle, onCatalog }
             <span>Update checked</span><b>{ts(h.lastUpdateCheckedAt)}</b>
           </div>
           {h.lifecycleMessage && <div className="note">{h.lifecycleMessage}</div>}
-          {h.type === 'free-model-router' && <FmrVisibilityDetails harness={h} allHarnesses={harnesses} />}
+          {h.type === 'free-model-router' && <FmrVisibilityDetails harness={h} allHarnesses={harnesses} busy={busy} onOperation={onOperation} />}
         </div>
       ))}</div>
     </div>
@@ -123,7 +123,7 @@ function HarnessesSection({ harnesses, busy, onRefresh, onLifecycle, onCatalog }
 }
 
 
-function FmrVisibilityDetails({ harness, allHarnesses }: { harness: HarnessView; allHarnesses: HarnessView[] }) {
+function FmrVisibilityDetails({ harness, allHarnesses, busy, onOperation }: { harness: HarnessView; allHarnesses: HarnessView[]; busy: string; onOperation: (harnessId: string, operation: HarnessOperationControlView) => void }) {
   const cfg = harness.config || {};
   const supported = Array.isArray(cfg.supportedHarnesses) ? cfg.supportedHarnesses.map(String) : [];
   const compatibility = allHarnesses.filter(h => h.id !== harness.id && h.type !== 'free-model-router');
@@ -137,6 +137,19 @@ function FmrVisibilityDetails({ harness, allHarnesses }: { harness: HarnessView;
         <span>Fallback placement owner</span><b>{String(cfg.fallbackPlacementOwner || 'agent-management')}</b>
       </div>
       <div className="item-meta" style={{ marginTop: 10 }}>DMM shows FMRv2 availability and harness capability. Per-agent fallback-chain order is not decided here.</div>
+      <div className="subsection" style={{ marginTop: 12 }}>
+        <h3>Operation controls</h3>
+        <div className="panel-desc">Controls are allowlisted by the FMRv2 DMM adapter. They operate on FMRv2 itself; DMM does not mutate Hermes, OpenClaw, Model Router V1, or fallback-chain order.</div>
+        <div className="table-rows" style={{ marginTop: 10 }}>
+          {(harness.operations || []).map(op => (
+            <div className="table-row" key={op.id}>
+              <div className="info"><strong>{op.label}</strong><p>{op.description} | {op.method} | {op.requiresToken ? 'machine token required' : 'public status'}</p></div>
+              <button className="ghost sm" onClick={() => onOperation(harness.id, op)} disabled={!!busy}>{busy === harness.id + op.id ? 'Running…' : 'Run'}</button>
+            </div>
+          ))}
+          {(!harness.operations || harness.operations.length === 0) && <div className="item-meta">No FMRv2 operations exposed by this adapter.</div>}
+        </div>
+      </div>
       <div className="table-rows" style={{ marginTop: 10 }}>
         {compatibility.map(target => {
           const state = supported.includes(target.id) ? 'supported' : 'unknown';
@@ -429,6 +442,13 @@ function ModelBoard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   function providerAction(id: string, action: string) { act(id + action, () => api(`/api/providers/${id}/${action}`, { method: 'POST', headers }).then(() => {})); }
   function deleteCredential(id: string) { act(id + 'delete', () => api(`/api/providers/${id}/credential`, { method: 'DELETE', headers }).then(() => {})); }
   function validateCredential(id: string) { act(id + 'validate', () => api(`/api/providers/${id}/validate`, { method: 'POST', headers }).then(() => {})); }
+  function runHarnessOperation(harnessId: string, operation: HarnessOperationControlView) {
+    act(harnessId + operation.id, async () => {
+      const r = await api<{ result: { status: string; message?: string } }>(`/api/harnesses/${encodeURIComponent(harnessId)}/operations/${encodeURIComponent(operation.id)}`, { method: 'POST', headers, body: JSON.stringify({}) });
+      if (!r.ok) alert(r.error.message);
+      else if (r.data.result.status !== 'completed') alert(r.data.result.message || `Operation ${r.data.result.status}`);
+    });
+  }
   function toggleProvider(id: string, current: string) { providerAction(id, current === 'disabled' ? 'enable' : 'disable'); }
   function toggleModel(id: string, current: ModelStatus) {
     act(id + (current === 'enabled' ? 'disable' : 'enable'), () =>
@@ -477,7 +497,7 @@ function ModelBoard({ me, onLogout }: { me: Me; onLogout: () => void }) {
     modelboard: <ModelBoardSection models={models} busy={busy} onToggle={toggleModel} />,
     catalog: <CatalogSection snapshots={snapshots} diffs={diffs} lifecycle={catalogLifecycle} busy={busy} onRefresh={refreshCatalog} onLifecycleRefresh={refreshCatalogLifecycle} />,
     providers: currentProvider ? <ProviderModelsPage provider={currentProvider} models={models} busy={busy} onByok={setSecretProvider} onValidate={validateCredential} onDeleteCred={deleteCredential} onToggleProvider={toggleProvider} onToggleModel={toggleModel} /> : <ProvidersSection providerStates={providerStates} requirements={requirements} credentials={credentials} busy={busy} onByok={setSecretProvider} onValidate={validateCredential} onDeleteCred={deleteCredential} />,
-    harnesses: <HarnessesSection harnesses={harnesses} busy={busy} onRefresh={refreshHarnesses} onLifecycle={refreshLifecycle} onCatalog={refreshCatalog} />,
+    harnesses: <HarnessesSection harnesses={harnesses} busy={busy} onRefresh={refreshHarnesses} onLifecycle={refreshLifecycle} onCatalog={refreshCatalog} onOperation={runHarnessOperation} />,
     audit: <AuditSection events={audit} />,
   };
 

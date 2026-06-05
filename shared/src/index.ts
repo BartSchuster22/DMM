@@ -17,7 +17,8 @@ export type ProviderView = { id: string; label: string; authMethod: string; docs
 export type ModelView = { id: string; providerId: string; displayName: string; modality: string; contextWindow?: number; status: ModelStatus; harnesses: string[]; updatedAt: string };
 
 export type AdapterCapabilitiesView = Record<string, boolean>;
-export type HarnessView = { id: string; type: string; label: string; baseUrl: string; enabled: boolean; adapterName: string; status: HarnessStatus; capabilities: AdapterCapabilitiesView; config?: Record<string, unknown>; lastSeenAt?: string; updatedAt: string; message?: string; currentVersion?: string; latestVersion?: string; updateAvailable?: boolean; updateChannel?: string; lastVersionCheckedAt?: string; lastUpdateCheckedAt?: string; lastCatalogRefreshAt?: string; lifecycleMessage?: string };
+export type HarnessOperationControlView = { id: string; label: string; description: string; method: 'GET' | 'POST'; destructive: boolean; requiresToken: boolean };
+export type HarnessView = { id: string; type: string; label: string; baseUrl: string; enabled: boolean; adapterName: string; status: HarnessStatus; capabilities: AdapterCapabilitiesView; config?: Record<string, unknown>; operations?: HarnessOperationControlView[]; lastSeenAt?: string; updatedAt: string; message?: string; currentVersion?: string; latestVersion?: string; updateAvailable?: boolean; updateChannel?: string; lastVersionCheckedAt?: string; lastUpdateCheckedAt?: string; lastCatalogRefreshAt?: string; lifecycleMessage?: string };
 
 export type NormalizedLayer = 'external_provider_model_source' | 'harness_instance' | 'harness_dmm_adapter' | 'dmm_ui';
 export type NormalizedHarnessProviderState = {

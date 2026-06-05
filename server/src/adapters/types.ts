@@ -63,6 +63,22 @@ export type HarnessUpdateResult = {
   raw?: unknown;
 };
 
+export type HarnessOperationControl = {
+  id: string;
+  label: string;
+  description: string;
+  method: 'GET' | 'POST';
+  destructive: boolean;
+  requiresToken: boolean;
+};
+
+export type HarnessOperationResult = {
+  operationId: string;
+  status: 'completed' | 'unsupported' | 'error';
+  message?: string;
+  data?: unknown;
+};
+
 export type NormalizedDiscoveredProvider = { id: string; label: string; harnessProviderId: string; authMethod: string; status?: string; metadata?: Record<string, unknown> };
 export type NormalizedDiscoveredModel = { id: string; providerId: string; displayName: string; harnessModelId: string; status?: string; modality?: string; contextWindow?: number; metadata?: Record<string, unknown> };
 export type DiscoveredProvider = NormalizedDiscoveredProvider;
@@ -101,6 +117,8 @@ export interface HarnessDmmAdapter {
   version?(ctx: AdapterContext): Promise<HarnessVersion>;
   updateStatus?(ctx: AdapterContext): Promise<HarnessUpdateStatus>;
   catalogRefresh?(ctx: AdapterContext): Promise<HarnessCatalogSnapshotInput>;
+  listOperations?(ctx: AdapterContext): HarnessOperationControl[];
+  runOperation?(ctx: AdapterContext, operationId: string, input?: Record<string, unknown>): Promise<HarnessOperationResult>;
 }
 export type HarnessAdapter = HarnessDmmAdapter;
 
@@ -115,6 +133,7 @@ export type HarnessView = {
   status: HarnessHealthStatus;
   capabilities: AdapterCapabilities;
   config?: Record<string, unknown>;
+  operations?: HarnessOperationControl[];
   lastSeenAt?: string;
   updatedAt: string;
   message?: string;
