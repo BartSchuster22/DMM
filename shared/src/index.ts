@@ -12,6 +12,7 @@ export type CredentialStatus = 'missing' | 'saved' | 'healthy' | 'invalid' | 'un
 export type ModelStatus = 'available' | 'enabled' | 'disabled' | 'deprecated' | 'unavailable';
 export type ProviderHarnessCredentialState = { harnessId: string; status: CredentialStatus; discoverySupported: boolean; credentialInstallSupported: boolean; modelCount: number; lastDiscoveredAt?: string; lastValidatedAt?: string };
 export type ProviderCredentialRequirementView = { providerId: string; label: string; authMethod: string; status: ProviderStatus; credentialStatus: CredentialStatus; requiredEnvVars: string[]; configuredEnvVars: string[]; credentialPoolCount: number; harnesses: ProviderHarnessCredentialState[]; docsUrl?: string; updatedAt: string };
+export type CredentialView = { providerId: string; providerLabel: string; authMethod: string; scope: string; status: CredentialStatus; fingerprint: string; harnessId?: string; lastValidatedAt?: string; createdAt: string; updatedAt: string };
 export type ProviderView = { id: string; label: string; authMethod: string; docsUrl?: string; status: ProviderStatus; credentialStatus: CredentialStatus; credentialFingerprint?: string; modelCount: number; harnesses: string[]; credentialRequirements?: ProviderCredentialRequirementView; updatedAt: string };
 export type ModelView = { id: string; providerId: string; displayName: string; modality: string; contextWindow?: number; status: ModelStatus; harnesses: string[]; updatedAt: string };
 

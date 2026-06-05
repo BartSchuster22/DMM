@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
-import type { CredentialStatus } from '@dmm/shared';
+import type { CredentialStatus, CredentialView } from '@dmm/shared';
 import type { Db } from '../db/sqlite.js';
 import { insertAudit, nowIso } from '../db/sqlite.js';
 
@@ -20,6 +20,25 @@ export function saveCredential(db: Db, masterKey: string, actor: string, provide
   db.prepare("UPDATE providers SET status='configured', updated_at=? WHERE id=?").run(now, providerId);
   insertAudit(db, { eventType: 'provider.credential.saved', actor, targetType: 'provider', targetId: providerId, payload: { fingerprint: fp } });
   return { providerId, status: 'saved', fingerprint: fp };
+}
+
+
+export function listCredentials(db: Db): CredentialView[] {
+  const rows = db.prepare(`SELECT c.provider_id, p.label provider_label, p.auth_method, c.harness_id, c.scope, c.fingerprint, c.status, c.last_validated_at, c.created_at, c.updated_at
+    FROM credentials c JOIN providers p ON p.id = c.provider_id
+    ORDER BY p.label ASC, c.scope ASC, c.updated_at DESC`).all() as any[];
+  return rows.map((r) => ({
+    providerId: r.provider_id,
+    providerLabel: r.provider_label,
+    authMethod: r.auth_method,
+    scope: r.scope,
+    status: r.status as CredentialStatus,
+    fingerprint: r.fingerprint,
+    harnessId: r.harness_id ?? undefined,
+    lastValidatedAt: r.last_validated_at ?? undefined,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at
+  }));
 }
 
 export function getCredential(db: Db, masterKey: string, providerId: string): StoredCredential | null {

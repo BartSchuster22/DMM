@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type {
   AuthUser, ProviderView, ModelView, AuditEvent, HarnessView,
   CatalogSnapshotView, CatalogDiffView, ProviderCredentialRequirementView,
-  CatalogLifecycleView, ModelStatus, NormalizedDmmStateView, NormalizedProviderState
+  CatalogLifecycleView, CredentialView, ModelStatus, NormalizedDmmStateView, NormalizedProviderState
 } from '@dmm/shared';
 import { dmmSectionManifest } from '@dmm/shared';
 import './styles.css';
@@ -197,24 +197,42 @@ function CatalogSection({ snapshots, diffs, lifecycle, busy, onRefresh, onLifecy
   );
 }
 
-function ProvidersSection({ providerStates }: {
-  providerStates: NormalizedProviderState[];
+function ProvidersSection({ providerStates, requirements, credentials, busy, onByok, onValidate, onDeleteCred }: {
+  providerStates: NormalizedProviderState[]; requirements: ProviderCredentialRequirementView[]; credentials: CredentialView[]; busy: string;
+  onByok: (p: ProviderView) => void; onValidate: (id: string) => void; onDeleteCred: (id: string) => void;
 }) {
+  const credentialByProvider = new Map(credentials.map(c => [c.providerId, c]));
+  const requirementByProvider = new Map(requirements.map(r => [r.providerId, r]));
+  const toProviderView = (p: NormalizedProviderState): ProviderView => ({ id: p.providerId, label: p.label, authMethod: p.authMethod, status: p.dmmProviderStatus, credentialStatus: p.dmmCredentialStatus, credentialFingerprint: p.dmmCredentialFingerprint, modelCount: p.modelCount, harnesses: p.harnessStates.map(h => h.harnessId), updatedAt: p.updatedAt });
   return (
     <div className="panel" id="providers">
       <div className="panel-head"><h2>External Providers + DMM Credentials</h2></div>
-      <div className="panel-desc">Rendered from the normalized Layer 4 state view. DMM credential state is separate from per-harness install/support state.</div>
-      <div className="provider-grid">{providerStates.map(p => (
-        <div className="item" key={p.providerId}>
+      <div className="panel-desc">Credential management is DMM-local first: secrets stay encrypted in the DMM vault, validation/install is delegated only to Layer 3 adapters that advertise support.</div>
+      <div className="provider-grid">{providerStates.map(p => {
+        const saved = credentialByProvider.get(p.providerId);
+        return <div className="item" key={p.providerId}>
           <div className="item-head"><strong><a className="entity-link" href={`#providers/${encodeURIComponent(p.providerId)}`} aria-label={`Open ${p.label} models`}>{p.label}</a></strong><Badge text={p.dmmProviderStatus} /></div>
           <div className="item-meta">{p.authMethod} | {p.modelCount} models | source: {p.externalSource}</div>
           <div className="cred-strip"><CredDot status={p.dmmCredentialStatus} /><span>DMM credential: {p.dmmCredentialStatus}</span>{p.dmmCredentialFingerprint && <span>({p.dmmCredentialFingerprint})</span>}</div>
           <div className="kv" style={{ marginTop: 10 }}>
             <span>DMM provider status</span><b>{p.dmmProviderStatus}</b>
+            <span>Vault record</span><b>{saved ? `${saved.scope} | ${saved.status} | ${saved.fingerprint}` : 'none'}</b>
             <span>Layer 3 harness states</span><b>{p.harnessStates.length > 0 ? p.harnessStates.map(h => <span key={h.harnessId} style={{ marginRight: 10 }}><CredDot status={h.credentialStatus} /> {h.harnessId}: {h.credentialStatus} / install {h.credentialInstallSupported ? 'supported' : 'unsupported'} ({h.modelCount})</span>) : 'none'}</b>
           </div>
-        </div>
-      ))}</div>
+          <div className="panel-actions" style={{ marginTop: 12 }}>
+            <button className="ghost sm" onClick={() => onByok(toProviderView(p))}>Save / rotate BYOK</button>
+            {saved && <button className="ghost sm" onClick={() => onValidate(p.providerId)} disabled={busy === p.providerId + 'validate'}>{busy === p.providerId + 'validate' ? 'Validating…' : 'Validate + sync adapters'}</button>}
+            {saved && <button className="ghost sm danger" onClick={() => onDeleteCred(p.providerId)}>Delete DMM key</button>}
+          </div>
+        </div>;
+      })}</div>
+      <div className="subsection"><h3>Credential requirements</h3><div className="table-rows">{providerStates.map(p => {
+        const r = requirementByProvider.get(p.providerId);
+        return <div className="table-row" key={p.providerId}>
+          <div className="info"><strong>{p.label}</strong><p>{r?.requiredEnvVars.length ? `requires ${r.requiredEnvVars.join(', ')}` : 'no required env vars declared'} | configured env: {r?.configuredEnvVars.join(', ') || 'none'} | pool: {r?.credentialPoolCount ?? 0}</p></div>
+          <Badge text={p.dmmCredentialStatus} />
+        </div>;
+      })}</div></div>
     </div>
   );
 }
@@ -351,6 +369,7 @@ function ModelBoard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const [harnesses, setHarnesses] = useState<HarnessView[]>([]);
   const [providers, setProviders] = useState<ProviderView[]>([]);
   const [requirements, setRequirements] = useState<ProviderCredentialRequirementView[]>([]);
+  const [credentials, setCredentials] = useState<CredentialView[]>([]);
   const [models, setModels] = useState<ModelView[]>([]);
   const [audit, setAudit] = useState<AuditEvent[]>([]);
   const [snapshots, setSnapshots] = useState<CatalogSnapshotView[]>([]);
@@ -364,10 +383,11 @@ function ModelBoard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const headers = { 'x-csrf-token': me.csrfToken };
 
   async function load() {
-    const [h, p, pr, m, a, cs, cd, cl, ns] = await Promise.all([
+    const [h, p, pr, cr, m, a, cs, cd, cl, ns] = await Promise.all([
       api<{ harnesses: HarnessView[] }>('/api/harnesses'),
       api<{ providers: ProviderView[] }>('/api/providers'),
       api<{ requirements: ProviderCredentialRequirementView[] }>('/api/providers/requirements'),
+      api<{ credentials: CredentialView[] }>('/api/credentials'),
       api<{ models: ModelView[] }>('/api/models'),
       api<{ events: AuditEvent[] }>('/api/audit'),
       api<{ snapshots: CatalogSnapshotView[] }>('/api/catalog/snapshots'),
@@ -376,7 +396,7 @@ function ModelBoard({ me, onLogout }: { me: Me; onLogout: () => void }) {
       api<NormalizedDmmStateView>('/api/normalized-state'),
     ]);
     if (h.ok) setHarnesses(h.data.harnesses); if (p.ok) setProviders(p.data.providers);
-    if (pr.ok) setRequirements(pr.data.requirements); if (m.ok) setModels(m.data.models);
+    if (pr.ok) setRequirements(pr.data.requirements); if (cr.ok) setCredentials(cr.data.credentials); if (m.ok) setModels(m.data.models);
     if (a.ok) setAudit(a.data.events); if (cs.ok) setSnapshots(cs.data.snapshots);
     if (cd.ok) setDiffs(cd.data.diffs); if (cl.ok) setCatalogLifecycle(cl.data.lifecycle);
     if (ns.ok) setNormalizedState(ns.data);
@@ -456,7 +476,7 @@ function ModelBoard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const pageContent: Record<PageId, React.ReactNode> = {
     modelboard: <ModelBoardSection models={models} busy={busy} onToggle={toggleModel} />,
     catalog: <CatalogSection snapshots={snapshots} diffs={diffs} lifecycle={catalogLifecycle} busy={busy} onRefresh={refreshCatalog} onLifecycleRefresh={refreshCatalogLifecycle} />,
-    providers: currentProvider ? <ProviderModelsPage provider={currentProvider} models={models} busy={busy} onByok={setSecretProvider} onValidate={validateCredential} onDeleteCred={deleteCredential} onToggleProvider={toggleProvider} onToggleModel={toggleModel} /> : <ProvidersSection providerStates={providerStates} />,
+    providers: currentProvider ? <ProviderModelsPage provider={currentProvider} models={models} busy={busy} onByok={setSecretProvider} onValidate={validateCredential} onDeleteCred={deleteCredential} onToggleProvider={toggleProvider} onToggleModel={toggleModel} /> : <ProvidersSection providerStates={providerStates} requirements={requirements} credentials={credentials} busy={busy} onByok={setSecretProvider} onValidate={validateCredential} onDeleteCred={deleteCredential} />,
     harnesses: <HarnessesSection harnesses={harnesses} busy={busy} onRefresh={refreshHarnesses} onLifecycle={refreshLifecycle} onCatalog={refreshCatalog} />,
     audit: <AuditSection events={audit} />,
   };

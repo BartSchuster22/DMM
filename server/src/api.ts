@@ -9,7 +9,7 @@ import type { AdapterRegistry } from './adapters/registry.js';
 import { listModels, listNormalizedDmmState, listProviders, listProviderCredentialRequirements, setModelStatus, setProviderStatus } from './catalog/catalog.js';
 import { listCatalogDiffs, listCatalogSnapshots } from './catalog/snapshots.js';
 import { listCatalogLifecycle } from './catalog/lifecycle.js';
-import { deleteCredential, getCredential, markCredentialValidated, saveCredential } from './vault/credential-store.js';
+import { deleteCredential, getCredential, listCredentials, markCredentialValidated, saveCredential } from './vault/credential-store.js';
 import { clientIp, sanitizeIdentifier, sanitizeSecret } from './security.js';
 export type AppContext = { db: Db; config: AppConfig; version: string; adapters: AdapterRegistry };
 type LoginBody = { username?: string; password?: string };
@@ -35,6 +35,7 @@ export async function registerApi(app: FastifyInstance, ctx: AppContext): Promis
   app.post('/api/harnesses/:id/catalog/refresh', { preHandler: requireAuth(ctx) }, async (request) => ok({ results: await ctx.adapters.refreshCatalog(currentUser(ctx, request)?.username ?? 'admin', sanitizeIdentifier((request.params as any).id, 'harness_id')) }));
   app.get('/api/providers', { preHandler: requireAuth(ctx) }, async () => ok({ providers: listProviders(ctx.db) }));
   app.get('/api/providers/requirements', { preHandler: requireAuth(ctx) }, async () => ok({ requirements: listProviderCredentialRequirements(ctx.db) }));
+  app.get('/api/credentials', { preHandler: requireAuth(ctx) }, async () => ok({ credentials: listCredentials(ctx.db) }));
   app.get('/api/normalized-state', { preHandler: requireAuth(ctx) }, async () => ok(listNormalizedDmmState(ctx.db)));
   app.post('/api/providers/:id/enable', { preHandler: requireAuth(ctx) }, async (request) => ok({ provider: setProviderStatus(ctx.db, currentUser(ctx, request)?.username ?? 'admin', sanitizeIdentifier((request.params as any).id, 'provider_id'), 'available') }));
   app.post('/api/providers/:id/disable', { preHandler: requireAuth(ctx) }, async (request) => ok({ provider: setProviderStatus(ctx.db, currentUser(ctx, request)?.username ?? 'admin', sanitizeIdentifier((request.params as any).id, 'provider_id'), 'disabled' as ProviderStatus) }));
