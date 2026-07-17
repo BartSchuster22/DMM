@@ -7,6 +7,7 @@ import { redactAdapterResult } from '../src/api.ts';
 test('security headers include browser hardening and restrictive CSP', () => {
   assert.equal(securityHeaders['x-frame-options'], 'DENY');
   assert.equal(securityHeaders['x-content-type-options'], 'nosniff');
+  assert.match(securityHeaders['strict-transport-security'], /max-age=31536000/);
   assert.match(securityHeaders['content-security-policy'], /frame-ancestors 'none'/);
   assert.match(securityHeaders['content-security-policy'], /script-src 'self'/);
 });

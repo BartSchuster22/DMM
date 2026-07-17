@@ -1,7 +1,12 @@
 node_modules
 .git
 data
+backups
+qa-reports
 .env
+.admin-password
+*.sqlite
+*.sqlite-*
 server/dist
 web/dist
 shared/dist

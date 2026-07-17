@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
 import { existsSync, statSync, readdirSync, writeFileSync, mkdirSync, chownSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 const root = resolve(new URL('..', import.meta.url).pathname);
 const base = (process.env.DMM_OPS_BASE_URL ?? process.env.DMM_QA_BASE_URL ?? 'http://127.0.0.1:4100').replace(/\/$/, '');
@@ -26,7 +26,10 @@ try {
   add('security headers', r.headers.get('x-frame-options') === 'DENY' && /no-store/.test(r.headers.get('cache-control') ?? ''), { xFrameOptions: r.headers.get('x-frame-options'), cacheControl: r.headers.get('cache-control') });
 } catch (e) { add('health endpoint', false, { message: e.message }); }
 
-const db = process.env.DMM_DB_PATH ?? join(root, 'data', 'dmm.sqlite');
+const configuredDb = process.env.DMM_DB_PATH;
+const db = configuredDb?.startsWith('/app/data/')
+  ? join(root, 'data', basename(configuredDb))
+  : configuredDb ?? join(root, 'data', 'dmm.sqlite');
 if (existsSync(db)) {
   const integrity = cmd('sqlite3', [db, 'PRAGMA integrity_check;']);
   add('database integrity', integrity.status === 0 && integrity.stdout.trim() === 'ok', { output: integrity.stdout.trim(), message: integrity.stderr.trim() });

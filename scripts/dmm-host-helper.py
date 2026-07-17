@@ -1,30 +1,27 @@
 #!/usr/bin/env python3
-import json, os, re, shlex, shutil, subprocess, time
-from pathlib import Path
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse, unquote
+import hmac
+import json
+import os
+import re
+import subprocess
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import unquote, urlparse
 
 TOKEN = os.environ.get('DMM_HOST_HELPER_TOKEN', '')
 HOST = os.environ.get('DMM_HOST_HELPER_HOST', '127.0.0.1')
 PORT = int(os.environ.get('DMM_HOST_HELPER_PORT', '4120'))
+MAX_BODY_BYTES = 16 * 1024
+HERMES_PATH = '/home/herman/.local/bin:/home/herman/.hermes/hermes-agent-live-lane-clean/venv/bin:/opt/node22/bin:/usr/local/bin:/usr/bin:/bin'
 
-def run(cmd, timeout=25, input_text=None):
-    proc = subprocess.run(cmd, shell=True, text=True, input=input_text, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, executable='/bin/bash')
-    out = proc.stdout.strip()
-    err = proc.stderr.strip()
-    return {'exitCode': proc.returncode, 'stdout': out, 'stderr': err}
 
-def run_partial(cmd, timeout=25):
-    try:
-        return run(cmd, timeout)
-    except subprocess.TimeoutExpired as exc:
-        out = exc.stdout or ''
-        err = exc.stderr or ''
-        if isinstance(out, bytes):
-            out = out.decode(errors='replace')
-        if isinstance(err, bytes):
-            err = err.decode(errors='replace')
-        return {'exitCode': 124, 'stdout': out.strip(), 'stderr': err.strip(), 'timedOut': True}
+def hermes_command(*args):
+    return ['sudo', '-u', 'herman', '-H', 'env', f'PATH={HERMES_PATH}', *args]
+
+
+def run(command, timeout=25):
+    proc = subprocess.run(command, shell=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+    return {'exitCode': proc.returncode, 'stdout': proc.stdout.strip(), 'stderr': proc.stderr.strip()}
+
 
 def json_from_stdout(result):
     text = result.get('stdout') or ''
@@ -41,234 +38,78 @@ def json_from_stdout(result):
                 pass
         return {}
 
-def openclaw_env(command):
-    return "sudo -u alice -H env PATH='/home/alice/.npm-global/bin:/home/alice/.nvm/versions/node/v22.22.2/bin:/opt/node22/bin:/usr/local/bin:/usr/bin:/bin' " + command
-
-def hermes_env(command):
-    return "sudo -u herman -H env PATH='/home/herman/.local/bin:/home/herman/.hermes/hermes-agent-live-lane-clean/venv/bin:/opt/node22/bin:/usr/local/bin:/usr/bin:/bin' " + command
-
-
-OPENCLAW_HOME = Path(os.environ.get('DMM_OPENCLAW_HOME', '/home/alice/.openclaw'))
-OPENCLAW_AGENT_ID = os.environ.get('DMM_OPENCLAW_AGENT_ID', 'main')
-OPENCLAW_ALLOWED_API_KEY_PROVIDERS = {'anthropic','openai','openrouter','zai','google','mistral','groq','xai','together','deepseek','perplexity','cohere'}
-
 
 def safe_provider_id(value):
     provider = str(value or '').strip().lower()
-    if not re.fullmatch(r'[a-z0-9][a-z0-9_.-]{0,63}', provider):
-        return ''
-    return provider
+    return provider if re.fullmatch(r'[a-z0-9][a-z0-9_.-]{0,63}', provider) else ''
 
 
-def openclaw_paths():
-    config = OPENCLAW_HOME / 'openclaw.json'
-    auth_profiles = OPENCLAW_HOME / 'agents' / OPENCLAW_AGENT_ID / 'agent' / 'auth-profiles.json'
-    return config, auth_profiles
+def op_hermes_catalog_status(_body=None):
+    result = run(hermes_command(
+        '/home/herman/.hermes/hermes-agent-live-lane-clean/venv/bin/python',
+        '/srv/dmm/scripts/hermes-catalog-status.py'
+    ), 90)
+    result['json'] = json_from_stdout(result)
+    return result
 
 
-def read_json_file(path, default):
-    try:
-        if not path.exists():
-            return default
-        with path.open('r', encoding='utf-8') as fh:
-            data = json.load(fh)
-        return data if isinstance(data, type(default)) else default
-    except Exception as exc:
-        raise RuntimeError(f'Failed to read {path.name}: {exc}')
+def op_hermes_version(_body=None):
+    result = run(hermes_command('hermes', '--version'), 25)
+    text = result.get('stdout') or result.get('stderr') or ''
+    match = re.search(r'Hermes Agent\s+(v?\d+\.\d+\.\d+)', text)
+    result['currentVersion'] = match.group(1) if match else None
+    result['message'] = text.splitlines()[0] if text.splitlines() else text
+    return result
 
 
-def atomic_write_json(path, data):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + '.tmp-dmm')
-    with tmp.open('w', encoding='utf-8') as fh:
-        json.dump(data, fh, indent=2, sort_keys=True)
-        fh.write('\n')
-    os.replace(tmp, path)
-    try:
-        shutil.chown(path, user='alice', group='alice')
-    except Exception:
-        pass
+def op_hermes_update_status(_body=None):
+    result = run(hermes_command('hermes', '--version'), 25)
+    text = (result.get('stdout') or '') + '\n' + (result.get('stderr') or '')
+    result['available'] = bool(re.search(r'Update available|commits behind|behind', text, re.I))
+    match = re.search(r'Hermes Agent\s+(v?\d+\.\d+\.\d+)', text)
+    result['currentVersion'] = match.group(1) if match else None
+    lines = [line.strip() for line in text.splitlines() if re.search(r'update|behind|upgrade', line, re.I)]
+    result['message'] = ' | '.join(lines[:3]) if lines else ('No update information reported' if result['exitCode'] == 0 else 'Hermes version check failed')
+    return result
 
 
-def backup_file(path):
-    if not path.exists():
-        return None
-    stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
-    backup = path.with_name(path.name + f'.dmm-backup-{stamp}')
-    shutil.copy2(path, backup)
-    try:
-        shutil.chown(backup, user='alice', group='alice')
-    except Exception:
-        pass
-    return str(backup)
-
-
-def validate_openclaw_api_key(provider, secret):
+def validate_api_key(provider, secret):
     provider = safe_provider_id(provider)
     key = str(secret or '').strip()
     if not provider:
         return {'status': 'invalid', 'message': 'Provider id is invalid'}
-    if provider == 'openai-codex':
-        return {'status': 'unsupported', 'message': 'OpenAI Codex uses OAuth/device credentials, not BYOK API-key install'}
-    if provider not in OPENCLAW_ALLOWED_API_KEY_PROVIDERS:
-        return {'status': 'unsupported', 'message': 'No OpenClaw BYOK API-key install mapping exists for provider'}
-    if len(key) < 8:
-        return {'status': 'invalid', 'message': 'Credential is too short'}
-    if re.search(r'\s', key):
-        return {'status': 'invalid', 'message': 'API keys must not contain whitespace'}
-    return {'status': 'healthy', 'message': 'Credential passed OpenClaw local BYOK format validation'}
-
-
-def op_openclaw_validate_credential(body=None):
-    body = body or {}
-    return validate_openclaw_api_key(body.get('providerId'), body.get('secret'))
-
-
-def op_openclaw_install_credential(body=None):
-    body = body or {}
-    provider = safe_provider_id(body.get('providerId'))
-    secret = str(body.get('secret') or '').strip()
-    validation = validate_openclaw_api_key(provider, secret)
-    if validation.get('status') != 'healthy':
-        return {'status': validation.get('status'), 'message': validation.get('message')}
-
-    config_path, profiles_path = openclaw_paths()
-    config = read_json_file(config_path, {})
-    profiles_doc = read_json_file(profiles_path, {'version': 1, 'profiles': {}})
-    if not isinstance(config, dict):
-        return {'status': 'error', 'message': 'OpenClaw config is not a JSON object'}
-    if not isinstance(profiles_doc, dict):
-        return {'status': 'error', 'message': 'OpenClaw auth profiles file is not a JSON object'}
-    profiles = profiles_doc.setdefault('profiles', {})
-    if not isinstance(profiles, dict):
-        return {'status': 'error', 'message': 'OpenClaw auth profiles shape is invalid'}
-
-    profile_id = provider + ':default'
-    backups = [b for b in [backup_file(config_path), backup_file(profiles_path)] if b]
-
-    profiles[profile_id] = {'type': 'api_key', 'provider': provider, 'key': secret}
-    profiles_doc['version'] = int(profiles_doc.get('version') or 1)
-
-    auth = config.setdefault('auth', {})
-    if not isinstance(auth, dict):
-        config['auth'] = auth = {}
-    auth_profiles = auth.setdefault('profiles', {})
-    if not isinstance(auth_profiles, dict):
-        auth['profiles'] = auth_profiles = {}
-    auth_profiles[profile_id] = {'mode': 'api_key', 'provider': provider}
-
-    try:
-        atomic_write_json(profiles_path, profiles_doc)
-        atomic_write_json(config_path, config)
-    except Exception as exc:
-        return {'status': 'error', 'message': 'OpenClaw credential install failed while writing config files'}
-
-    verify_doc = read_json_file(profiles_path, {'profiles': {}})
-    installed = isinstance(verify_doc.get('profiles'), dict) and verify_doc['profiles'].get(profile_id, {}).get('provider') == provider
-    if not installed:
-        return {'status': 'error', 'message': 'OpenClaw credential install verification failed'}
-    return {'status': 'installed', 'message': 'Credential installed into OpenClaw auth profile', 'profileId': profile_id, 'backupsCreated': len(backups)}
-
-def op_openclaw_version():
-    r = run(openclaw_env('openclaw --version'), 20)
-    text = r.get('stdout') or r.get('stderr') or ''
-    m = re.search(r'(\d{4}\.\d+\.\d+)', text)
-    commit = re.search(r'\(([0-9a-f]{6,40})\)', text)
-    r['currentVersion'] = m.group(1) if m else None
-    r['commit'] = commit.group(1) if commit else None
-    return r
-
-def op_openclaw_update_status():
-    r = run(openclaw_env('openclaw update status --json'), 30)
-    try:
-        j = json.loads(r.get('stdout') or '{}')
-    except Exception:
-        j = {}
-    r['json'] = j
-    r['available'] = bool(j.get('availability', {}).get('available'))
-    r['latestVersion'] = j.get('availability', {}).get('latestVersion') or j.get('update', {}).get('registry', {}).get('latestVersion')
-    r['channel'] = j.get('channel', {}).get('value')
-    return r
-
-def op_openclaw_models_status():
-    r = run_partial(openclaw_env('openclaw models status --json'), 35)
-    r['json'] = json_from_stdout(r)
-    return r
-
-def op_openclaw_models_list():
-    # This OpenClaw install can print valid JSON and keep the event loop alive.
-    # Capture partial stdout under timeout; the adapter consumes JSON if present.
-    r = run_partial(openclaw_env('openclaw models list --json'), 35)
-    r['json'] = json_from_stdout(r)
-    return r
-
-def op_openclaw_catalog_status():
-    status = op_openclaw_models_status()
-    models = op_openclaw_models_list()
-    return {'status': status, 'modelsList': models}
-
-def op_hermes_catalog_status():
-    r = run(hermes_env('/home/herman/.hermes/hermes-agent-live-lane-clean/venv/bin/python /srv/dmm/scripts/hermes-catalog-status.py'), 90)
-    r['json'] = json_from_stdout(r)
-    return r
-
-def op_hermes_version():
-    r = run(hermes_env('hermes --version'), 25)
-    text = r.get('stdout') or r.get('stderr') or ''
-    m = re.search(r'Hermes Agent\s+(v?\d+\.\d+\.\d+)', text)
-    r['currentVersion'] = m.group(1) if m else None
-    r['message'] = text.splitlines()[0] if text.splitlines() else text
-    return r
-
-def op_hermes_update_status():
-    r = run(hermes_env('hermes --version'), 25)
-    text = (r.get('stdout') or '') + '\n' + (r.get('stderr') or '')
-    r['available'] = bool(re.search(r'Update available|commits behind|behind', text, re.I))
-    m = re.search(r'Hermes Agent\s+(v?\d+\.\d+\.\d+)', text)
-    r['currentVersion'] = m.group(1) if m else None
-    lines = [line.strip() for line in text.splitlines() if re.search(r'update|behind|upgrade', line, re.I)]
-    r['message'] = ' | '.join(lines[:3]) if lines else ('No update information reported' if r['exitCode'] == 0 else text.strip())
-    return r
-
-
-def validate_api_key(provider, secret):
-    key = (secret or '').strip()
     if len(key) < 8:
         return {'status': 'invalid', 'message': 'Credential is too short'}
     if re.search(r'\s', key):
         return {'status': 'invalid', 'message': 'API keys must not contain whitespace'}
     if provider == 'openai-codex':
-        return {'status': 'unsupported', 'message': 'OpenAI Codex uses OAuth/device credentials, not BYOK API-key install'}
-    return {'status': 'healthy', 'message': 'Credential passed local BYOK format validation'}
-
+        return {'status': 'unsupported', 'message': 'OpenAI Codex uses OAuth/device credentials, not API-key activation'}
+    return {'status': 'healthy', 'message': 'Credential passed local API-key format validation'}
 
 
 def op_hermes_validate_credential(body=None):
     body = body or {}
-    return validate_api_key(str(body.get('providerId') or ''), str(body.get('secret') or ''))
+    return validate_api_key(body.get('providerId'), body.get('secret'))
+
 
 def op_hermes_install_credential(body=None):
     body = body or {}
-    provider = str(body.get('providerId') or '').strip()
+    provider = safe_provider_id(body.get('providerId'))
     secret = str(body.get('secret') or '').strip()
-    label = str(body.get('label') or ('DMM BYOK ' + provider))
+    label = str(body.get('label') or ('DMM API key ' + provider))[:128]
     validation = validate_api_key(provider, secret)
     if validation.get('status') != 'healthy':
-        return {'status': validation.get('status'), 'message': validation.get('message')}
-    cmd = hermes_env('hermes auth add ' + shlex.quote(provider) + ' --type api-key --label ' + shlex.quote(label) + ' --api-key ' + shlex.quote(secret))
-    r = run(cmd, 30)
-    if r.get('exitCode') == 0:
+        return validation
+    result = run(hermes_command(
+        'hermes', 'auth', 'add', provider,
+        '--type', 'api-key', '--label', label, '--api-key', secret
+    ), 30)
+    if result.get('exitCode') == 0:
         return {'status': 'installed', 'message': 'Credential installed into Hermes auth pool'}
-    return {'status': 'error', 'message': r.get('stderr') or r.get('stdout') or 'Hermes credential install failed'}
+    return {'status': 'error', 'message': 'Hermes credential installation failed'}
+
 
 OPS = {
-    'openclaw.version': op_openclaw_version,
-    'openclaw.updateStatus': op_openclaw_update_status,
-    'openclaw.modelsStatus': op_openclaw_models_status,
-    'openclaw.modelsList': op_openclaw_models_list,
-    'openclaw.catalogStatus': op_openclaw_catalog_status,
-    'openclaw.validateCredential': op_openclaw_validate_credential,
-    'openclaw.installCredential': op_openclaw_install_credential,
     'hermes.version': op_hermes_version,
     'hermes.updateStatus': op_hermes_update_status,
     'hermes.catalogStatus': op_hermes_catalog_status,
@@ -276,20 +117,25 @@ OPS = {
     'hermes.installCredential': op_hermes_install_credential,
 }
 
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, payload):
         body = json.dumps(payload).encode()
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
+        self.send_header('Cache-Control', 'no-store')
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
     def do_GET(self):
         if self.path == '/health':
             return self._send(200, {'ok': True, 'service': 'dmm-host-helper'})
         return self._send(404, {'ok': False, 'error': {'code': 'not_found', 'message': 'Not found'}})
+
     def do_POST(self):
-        if TOKEN and self.headers.get('x-dmm-helper-token') != TOKEN:
+        supplied = self.headers.get('x-dmm-helper-token') or ''
+        if not TOKEN or not hmac.compare_digest(supplied, TOKEN):
             return self._send(401, {'ok': False, 'error': {'code': 'unauthorized', 'message': 'Invalid helper token'}})
         path = urlparse(self.path).path
         prefix = '/v1/operations/'
@@ -300,26 +146,23 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(403, {'ok': False, 'operation': operation, 'error': {'code': 'operation_not_allowed', 'message': 'Operation is not allowlisted'}})
         try:
             length = int(self.headers.get('content-length') or 0)
-            body = {}
-            if length:
-                try:
-                    body = json.loads(self.rfile.read(length).decode() or '{}')
-                except Exception:
-                    body = {}
-            fn = OPS[operation]
-            try:
-                data = fn(body)
-            except TypeError:
-                data = fn()
+            if length < 0 or length > MAX_BODY_BYTES:
+                return self._send(413, {'ok': False, 'error': {'code': 'payload_too_large', 'message': 'Payload too large'}})
+            body = json.loads(self.rfile.read(length).decode() or '{}') if length else {}
+            data = OPS[operation](body)
             if data.get('exitCode') not in (0, None):
-                return self._send(502, {'ok': False, 'operation': operation, 'error': {'code': 'command_failed', 'message': data.get('stderr') or data.get('stdout') or 'command failed'}, 'data': data})
+                return self._send(502, {'ok': False, 'operation': operation, 'error': {'code': 'command_failed', 'message': 'Framework command failed'}})
             return self._send(200, {'ok': True, 'operation': operation, 'data': data})
-        except Exception as exc:
-            return self._send(500, {'ok': False, 'operation': operation, 'error': {'code': 'helper_error', 'message': str(exc)}})
-    def log_message(self, fmt, *args):
+        except json.JSONDecodeError:
+            return self._send(400, {'ok': False, 'error': {'code': 'invalid_json', 'message': 'Invalid JSON'}})
+        except Exception:
+            return self._send(500, {'ok': False, 'operation': operation, 'error': {'code': 'helper_error', 'message': 'Host helper operation failed'}})
+
+    def log_message(self, format, *args):
         return
+
 
 if __name__ == '__main__':
     if not TOKEN:
         raise SystemExit('DMM_HOST_HELPER_TOKEN is required')
-    HTTPServer((HOST, PORT), Handler).serve_forever()
+    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

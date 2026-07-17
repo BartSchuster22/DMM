@@ -47,4 +47,22 @@ test('catalog snapshot retention keeps max 10 snapshots per harness and prunes o
   `).get() as { count: number }).count;
   assert.equal(orphanDiffs, 0);
   assert.equal(listCatalogDiffs(db, 50).filter((d) => d.harnessId === 'hermes').length, CATALOG_SNAPSHOT_RETENTION_PER_HARNESS - 1);
+
+  db.prepare("UPDATE harnesses SET enabled=0 WHERE id='openclaw'").run();
+  assert.equal(listCatalogSnapshots(db, 50).some((s) => s.harnessId === 'openclaw'), false);
+  assert.equal(listCatalogDiffs(db, 50).some((d) => d.harnessId === 'openclaw'), false);
+});
+
+test('catalog diffs detect changes in nested model metadata', () => {
+  const db = openDb(':memory:');
+  migrate(db);
+  insertHarness(db, 'hermes');
+  const first = snapshot('hermes', 1);
+  first.models[0].metadata = { nested: { mode: 'before' } };
+  storeCatalogSnapshot(db, 'test', first);
+  const second = structuredClone(first);
+  second.capturedAt = '2026-01-01T00:02:00.000Z';
+  second.models[0].metadata = { nested: { mode: 'after' } };
+  storeCatalogSnapshot(db, 'test', second);
+  assert.equal(listCatalogDiffs(db, 10)[0]?.summary.changedModels, 1);
 });

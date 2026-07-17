@@ -1,0 +1,31 @@
+[Unit]
+Description=DMM Hermes host helper
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/dmm/host-helper.env
+ExecStart=/usr/bin/python3 /srv/dmm/scripts/dmm-host-helper.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=false
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_DAC_READ_SEARCH
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

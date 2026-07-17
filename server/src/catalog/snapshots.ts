@@ -69,10 +69,12 @@ export function pruneOrphanedCatalogDiffs(db: Db): number {
 }
 
 export function listCatalogSnapshots(db: Db, limit = 25): CatalogSnapshotView[] {
-  return (db.prepare('SELECT * FROM catalog_snapshots ORDER BY captured_at DESC LIMIT ?').all(limit) as any[]).map(rowToSnapshotView);
+  return (db.prepare(`SELECT s.* FROM catalog_snapshots s JOIN harnesses h ON h.id=s.harness_id
+    WHERE h.enabled=1 ORDER BY s.captured_at DESC LIMIT ?`).all(limit) as any[]).map(rowToSnapshotView);
 }
 export function listCatalogDiffs(db: Db, limit = 25): CatalogDiffView[] {
-  return (db.prepare('SELECT * FROM catalog_diffs ORDER BY created_at DESC LIMIT ?').all(limit) as any[]).map(rowToDiffView);
+  return (db.prepare(`SELECT d.* FROM catalog_diffs d JOIN harnesses h ON h.id=d.harness_id
+    WHERE h.enabled=1 ORDER BY d.created_at DESC LIMIT ?`).all(limit) as any[]).map(rowToDiffView);
 }
 
 function applyCatalogToCurrentTables(db: Db, input: HarnessCatalogSnapshotInput): void {
@@ -107,7 +109,14 @@ function diffSnapshots(previous: HarnessCatalogSnapshotInput, current: HarnessCa
     changedModels: [...curModels.values()].filter((m) => prevModels.has(m.id) && stableJson(prevModels.get(m.id)) !== stableJson(m)).map((m) => ({ before: prevModels.get(m.id)!, after: m }))
   };
 }
-function stableJson(value: unknown): string { return JSON.stringify(value, Object.keys(value as any).sort()); }
+function stableJson(value: unknown): string { return JSON.stringify(canonicalize(value)); }
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, nested]) => [key, canonicalize(nested)]));
+  }
+  return value;
+}
 function rowToSnapshotView(r: any): CatalogSnapshotView { return { id: r.id, harnessId: r.harness_id, harnessVersion: r.harness_version ?? undefined, providerCount: Number(r.provider_count), modelCount: Number(r.model_count), sourceMethod: r.source_method, capturedAt: r.captured_at }; }
 function rowToDiffView(r: any): CatalogDiffView {
   const addedProviders = JSON.parse(r.added_providers_json); const removedProviders = JSON.parse(r.removed_providers_json); const changedProviders = JSON.parse(r.changed_providers_json); const addedModels = JSON.parse(r.added_models_json); const removedModels = JSON.parse(r.removed_models_json); const changedModels = JSON.parse(r.changed_models_json);

@@ -1,0 +1,29 @@
+[Unit]
+Description=Create and verify a DMM SQLite backup
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/dmm
+Environment=DMM_BACKUP_RETENTION=56
+ExecStart=/home/herman/.hermes/node/bin/node /srv/dmm/scripts/ops-backup.mjs
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=CAP_FOWNER CAP_DAC_READ_SEARCH
+ReadWritePaths=/srv/dmm/backups

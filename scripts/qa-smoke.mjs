@@ -41,6 +41,7 @@ async function request(path, options = {}) {
 function assertSecurityHeaders(res, api = false) {
   assert.equal(res.headers.get('x-frame-options'), 'DENY');
   assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(res.headers.get('strict-transport-security') ?? '', /max-age=31536000/);
   assert.match(res.headers.get('content-security-policy') ?? '', /frame-ancestors 'none'/);
   assert.match(res.headers.get('content-security-policy') ?? '', /script-src 'self'/);
   if (api) assert.match(res.headers.get('cache-control') ?? '', /no-store/);
@@ -78,6 +79,14 @@ await check('public status endpoint', async () => {
   assertSecurityHeaders(res, true);
 });
 
+await check('public section manifest matches the DMM boundary', async () => {
+  const { res, body } = await request('/api/section-manifest');
+  assert.equal(res.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.data.id, 'dmm');
+  assertSecurityHeaders(res, true);
+});
+
 await check('protected endpoint rejects anonymous access', async () => {
   const { res, body } = await request('/api/providers');
   assert.equal(res.status, 401);
@@ -110,10 +119,19 @@ if (!password) {
     assert.equal(body.error.code, 'csrf_invalid');
   });
 
+  await check('authenticated identity endpoint', async () => {
+    const { res, body } = await request('/api/auth/me');
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.data.user.username, username);
+    assert.ok(body.data.csrfToken);
+  });
+
   const endpoints = [
     ['/api/harnesses', 'harnesses'],
     ['/api/providers', 'providers'],
     ['/api/providers/requirements', 'requirements'],
+    ['/api/credentials', 'credentials'],
     ['/api/models', 'models'],
     ['/api/catalog/lifecycle', 'lifecycle'],
     ['/api/catalog/snapshots', 'snapshots'],
@@ -131,6 +149,16 @@ if (!password) {
     });
   }
 
+  await check('normalized state contains only active framework bindings', async () => {
+    const { res, body } = await request('/api/normalized-state');
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, true);
+    assert.ok(Array.isArray(body.data.providers));
+    assert.ok(body.data.providers.every((provider) => provider.harnessStates?.length > 0));
+    assertNoSecretLeak(body, 'normalized state');
+    return { count: body.data.providers.length };
+  });
+
   await check('catalog refresh action succeeds', async () => {
     const { res, body } = await request('/api/catalog/refresh', { method: 'POST', headers: { 'x-csrf-token': csrfToken } });
     assert.equal(res.status, 200);
@@ -138,6 +166,13 @@ if (!password) {
     assert.ok(Array.isArray(body.data.results));
     assertNoSecretLeak(body, 'catalog refresh');
     return { results: body.data.results.length };
+  });
+
+  await check('admin logout destroys the QA session', async () => {
+    const { res, body } = await request('/api/auth/logout', { method: 'POST', headers: { 'x-csrf-token': csrfToken } });
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, true);
+    cookie = '';
   });
 }
 

@@ -21,6 +21,7 @@ export function listCatalogLifecycle(db: Db): CatalogLifecycleView[] {
     LEFT JOIN catalog_snapshots s ON s.id = (
       SELECT id FROM catalog_snapshots WHERE harness_id = h.id ORDER BY captured_at DESC LIMIT 1
     )
+    WHERE h.enabled = 1
     ORDER BY h.id ASC
   `).all() as any[];
   return rows.map(rowToCatalogLifecycleView);

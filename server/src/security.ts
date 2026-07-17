@@ -7,6 +7,7 @@ export const securityHeaders = {
   'referrer-policy': 'no-referrer',
   'cross-origin-opener-policy': 'same-origin',
   'cross-origin-resource-policy': 'same-origin',
+  'strict-transport-security': 'max-age=31536000; includeSubDomains',
   'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=(self)',
   'content-security-policy': [
     "default-src 'self'",
@@ -75,7 +76,5 @@ export function sanitizeSecret(input: unknown): string {
 }
 
 export function clientIp(request: FastifyRequest): string {
-  const forwarded = request.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.length > 0) return forwarded.split(',')[0].trim().slice(0, 64);
   return request.ip.slice(0, 64);
 }

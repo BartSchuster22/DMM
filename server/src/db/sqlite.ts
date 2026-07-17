@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { chmodSync } from 'node:fs';
+import { dirname } from 'node:path';
 // node:sqlite is built into Node 22+ and keeps DMM lightweight (no native npm sqlite package).
 import { DatabaseSync } from 'node:sqlite';
 import type { AuditEvent } from '@dmm/shared';
@@ -8,6 +10,10 @@ export type Db = DatabaseSync;
 export function openDb(path: string): Db {
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+  if (path !== ':memory:') {
+    chmodSync(dirname(path), 0o700);
+    chmodSync(path, 0o600);
+  }
   return db;
 }
 
@@ -176,6 +182,9 @@ export function insertAudit(db: Db, input: Omit<AuditEvent, 'id' | 'createdAt' |
   const event: AuditEvent = { id: randomUUID(), eventType: input.eventType, actor: input.actor, targetType: input.targetType, targetId: input.targetId, payload: input.payload, createdAt: nowIso() };
   db.prepare('INSERT INTO audit_events (id,event_type,actor,target_type,target_id,payload_json,created_at) VALUES (?,?,?,?,?,?,?)')
     .run(event.id, event.eventType, event.actor, event.targetType, event.targetId, JSON.stringify(event.payload), event.createdAt);
+  db.prepare(`DELETE FROM audit_events WHERE id IN (
+    SELECT id FROM audit_events ORDER BY created_at DESC, id DESC LIMIT -1 OFFSET 5000
+  )`).run();
   return event;
 }
 
