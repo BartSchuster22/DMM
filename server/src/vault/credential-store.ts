@@ -17,7 +17,7 @@ export function saveCredential(db: Db, masterKey: string, actor: string, provide
   const fp = fingerprint(secret);
   db.prepare('DELETE FROM credentials WHERE provider_id=? AND harness_id IS NULL').run(providerId);
   db.prepare('INSERT INTO credentials (id,provider_id,harness_id,scope,encrypted_payload,fingerprint,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)').run(randomUUID(), providerId, null, 'global_provider', encrypt(masterKey, secret.trim()), fp, 'saved', now, now);
-  db.prepare("UPDATE providers SET status='configured', updated_at=? WHERE id=?").run(now, providerId);
+
   insertAudit(db, { eventType: 'provider.credential.saved', actor, targetType: 'provider', targetId: providerId, payload: { fingerprint: fp } });
   return { providerId, status: 'saved', fingerprint: fp };
 }
@@ -49,9 +49,7 @@ export function getCredential(db: Db, masterKey: string, providerId: string): St
 
 export function deleteCredential(db: Db, actor: string, providerId: string): { providerId: string; deleted: boolean } {
   const result = db.prepare('DELETE FROM credentials WHERE provider_id=? AND harness_id IS NULL').run(providerId);
-  const now = nowIso();
-  db.prepare("UPDATE providers SET status='available', updated_at=? WHERE id=?").run(now, providerId);
-  db.prepare("UPDATE harness_providers SET credential_status='missing', last_validated_at=? WHERE provider_id=?").run(now, providerId);
+
   insertAudit(db, { eventType: 'provider.credential.deleted', actor, targetType: 'provider', targetId: providerId, payload: { deleted: result.changes > 0 } });
   return { providerId, deleted: result.changes > 0 };
 }
@@ -59,8 +57,7 @@ export function deleteCredential(db: Db, actor: string, providerId: string): { p
 export function markCredentialValidated(db: Db, actor: string, providerId: string, status: 'healthy' | 'saved' | 'invalid' | 'unsupported' | 'error', message?: string): { providerId: string; status: string } {
   const now = nowIso();
   db.prepare('UPDATE credentials SET status=?, last_validated_at=?, updated_at=? WHERE provider_id=? AND harness_id IS NULL').run(status, now, now, providerId);
-  const providerStatus = status === 'healthy' ? 'healthy' : status === 'invalid' || status === 'error' ? 'degraded' : 'configured';
-  db.prepare('UPDATE providers SET status=?, updated_at=? WHERE id=?').run(providerStatus, now, providerId);
+
   insertAudit(db, { eventType: 'provider.credential.validated', actor, targetType: 'provider', targetId: providerId, payload: { status, message } });
   return { providerId, status };
 }

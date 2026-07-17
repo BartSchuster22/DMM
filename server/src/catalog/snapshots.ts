@@ -14,6 +14,13 @@ export type CatalogDiff = {
   changedModels: Array<{ before: DiscoveredModel; after: DiscoveredModel }>;
 };
 
+export const CATALOG_SNAPSHOT_RETENTION_PER_HARNESS = 10;
+
+export type CatalogRetentionResult = {
+  deletedSnapshots: number;
+  deletedDiffs: number;
+};
+
 export function storeCatalogSnapshot(db: Db, actor: string, input: HarnessCatalogSnapshotInput): { snapshot: CatalogSnapshotView; diff?: CatalogDiffView } {
   const previous = latestSnapshotRaw(db, input.harnessId);
   const snapshotId = randomUUID();
@@ -32,8 +39,33 @@ export function storeCatalogSnapshot(db: Db, actor: string, input: HarnessCatalo
       .run(diffId, input.harnessId, previous.id, snapshotId, JSON.stringify(diff.addedProviders), JSON.stringify(diff.removedProviders), JSON.stringify(diff.changedProviders), JSON.stringify(diff.addedModels), JSON.stringify(diff.removedModels), JSON.stringify(diff.changedModels), capturedAt);
     diffView = rowToDiffView(db.prepare('SELECT * FROM catalog_diffs WHERE id=?').get(diffId) as any);
   }
-  insertAudit(db, { eventType: 'catalog.snapshot_captured', actor, targetType: 'harness', targetId: input.harnessId, payload: { snapshotId, providerCount: input.providers.length, modelCount: input.models.length, source: input.source, diff: diffView?.summary } });
+  const retention = pruneCatalogSnapshotsForHarness(db, input.harnessId);
+  insertAudit(db, { eventType: 'catalog.snapshot_captured', actor, targetType: 'harness', targetId: input.harnessId, payload: { snapshotId, providerCount: input.providers.length, modelCount: input.models.length, source: input.source, diff: diffView?.summary, retention } });
   return { snapshot, diff: diffView };
+}
+
+export function pruneCatalogSnapshotsForHarness(db: Db, harnessId: string, keep = CATALOG_SNAPSHOT_RETENTION_PER_HARNESS): CatalogRetentionResult {
+  if (!Number.isInteger(keep) || keep < 1) throw new Error('Catalog snapshot retention must keep at least one snapshot per harness');
+  const deletedSnapshots = Number(db.prepare(`
+    DELETE FROM catalog_snapshots
+    WHERE harness_id = ?
+      AND id IN (
+        SELECT id FROM catalog_snapshots
+        WHERE harness_id = ?
+        ORDER BY captured_at DESC, id DESC
+        LIMIT -1 OFFSET ?
+      )
+  `).run(harnessId, harnessId, keep).changes);
+  const deletedDiffs = pruneOrphanedCatalogDiffs(db);
+  return { deletedSnapshots, deletedDiffs };
+}
+
+export function pruneOrphanedCatalogDiffs(db: Db): number {
+  return Number(db.prepare(`
+    DELETE FROM catalog_diffs
+    WHERE to_snapshot_id NOT IN (SELECT id FROM catalog_snapshots)
+       OR (from_snapshot_id IS NOT NULL AND from_snapshot_id NOT IN (SELECT id FROM catalog_snapshots))
+  `).run().changes);
 }
 
 export function listCatalogSnapshots(db: Db, limit = 25): CatalogSnapshotView[] {

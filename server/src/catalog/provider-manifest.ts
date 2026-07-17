@@ -1,10 +1,14 @@
-export type ProviderManifest = { id: string; label: string; authMethod: 'api_key' | 'oauth' | 'none' | 'unknown'; docsUrl?: string; seedModels: Array<{ id: string; displayName: string; contextWindow?: number; modality?: string }> };
+export type ProviderManifest = { id: string; label: string; authMethod: 'api_key' | 'oauth' | 'none' | 'unknown'; docsUrl?: string; metadata?: Record<string, unknown> };
 export const providerManifests: ProviderManifest[] = [
-  { id: 'openrouter', label: 'OpenRouter', authMethod: 'api_key', docsUrl: 'https://openrouter.ai/keys', seedModels: [{ id: 'openrouter:anthropic/claude-sonnet-4', displayName: 'Claude Sonnet 4', contextWindow: 200000 }, { id: 'openrouter:openai/gpt-4.1', displayName: 'GPT-4.1', contextWindow: 1047576 }, { id: 'openrouter:google/gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', contextWindow: 1048576 }]},
-  { id: 'openai', label: 'OpenAI', authMethod: 'api_key', docsUrl: 'https://platform.openai.com/api-keys', seedModels: [{ id: 'openai:gpt-4.1', displayName: 'GPT-4.1', contextWindow: 1047576 }, { id: 'openai:gpt-4o', displayName: 'GPT-4o', contextWindow: 128000 }]},
-  { id: 'anthropic', label: 'Anthropic', authMethod: 'api_key', docsUrl: 'https://console.anthropic.com/settings/keys', seedModels: [{ id: 'anthropic:claude-sonnet-4', displayName: 'Claude Sonnet 4', contextWindow: 200000 }, { id: 'anthropic:claude-opus-4', displayName: 'Claude Opus 4', contextWindow: 200000 }]},
-  { id: 'deepseek', label: 'DeepSeek', authMethod: 'api_key', docsUrl: 'https://platform.deepseek.com/api_keys', seedModels: [{ id: 'deepseek:deepseek-chat', displayName: 'DeepSeek Chat', contextWindow: 64000 }, { id: 'deepseek:deepseek-reasoner', displayName: 'DeepSeek Reasoner', contextWindow: 64000 }]},
-  { id: 'groq', label: 'Groq', authMethod: 'api_key', docsUrl: 'https://console.groq.com/keys', seedModels: [{ id: 'groq:llama-3.3-70b-versatile', displayName: 'Llama 3.3 70B Versatile', contextWindow: 128000 }]},
-  { id: 'zai', label: 'Z.ai', authMethod: 'api_key', docsUrl: 'https://z.ai', seedModels: [{ id: 'zai:glm-4.5', displayName: 'GLM-4.5', contextWindow: 128000 }]},
-  { id: 'custom-openai-compatible', label: 'Custom OpenAI-compatible', authMethod: 'api_key', seedModels: [] }
+  { id: 'openrouter', label: 'OpenRouter', authMethod: 'api_key', docsUrl: 'https://openrouter.ai/keys' },
+  { id: 'openai', label: 'OpenAI', authMethod: 'api_key', docsUrl: 'https://platform.openai.com/api-keys' },
+  { id: 'anthropic', label: 'Anthropic', authMethod: 'api_key', docsUrl: 'https://console.anthropic.com/settings/keys' },
+  { id: 'deepseek', label: 'DeepSeek', authMethod: 'api_key', docsUrl: 'https://platform.deepseek.com/api_keys' },
+  { id: 'groq', label: 'Groq', authMethod: 'api_key', docsUrl: 'https://console.groq.com/keys' },
+  { id: 'zai', label: 'Z.ai', authMethod: 'api_key', docsUrl: 'https://z.ai' },
+  { id: 'custom-openai-compatible', label: 'Custom OpenAI-compatible', authMethod: 'api_key' }
 ];
+
+export function providerManifest(id: string): ProviderManifest | undefined {
+  return providerManifests.find((provider) => provider.id === id);
+}

@@ -11,8 +11,13 @@ const checks = [];
 function add(name, ok, detail = {}) { checks.push({ name, ok, detail }); console.log(`${ok ? '✓' : '✗'} ${name}${detail.message ? ` — ${detail.message}` : ''}`); }
 function cmd(command, args, opts={}) { return spawnSync(command, args, { encoding: 'utf8', ...opts }); }
 
-const docker = cmd('docker', ['inspect', '--format', '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}', 'dmm']);
-add('container state', docker.status === 0 && /running/.test(docker.stdout) && /healthy/.test(docker.stdout), { output: docker.stdout.trim(), message: docker.stderr.trim() });
+let docker;
+for (let attempt = 0; attempt < 30; attempt += 1) {
+  docker = cmd('docker', ['inspect', '--format', '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}', 'dmm']);
+  if (docker.status === 0 && /running/.test(docker.stdout) && /healthy/.test(docker.stdout)) break;
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+}
+add('container state', docker?.status === 0 && /running/.test(docker.stdout) && /healthy/.test(docker.stdout), { output: docker?.stdout.trim() ?? '', message: docker?.stderr.trim() ?? '' });
 
 try {
   const r = await fetch(`${base}/health`);
@@ -37,7 +42,9 @@ if (df.status === 0) {
 
 const backupDir = process.env.DMM_BACKUP_DIR ?? join(root, 'backups');
 if (existsSync(backupDir)) {
-  const backups = readdirSync(backupDir).filter(f => /^dmm-.*\.sqlite$/.test(f)).sort().reverse();
+  const backups = readdirSync(backupDir)
+    .filter(f => /^dmm-.*\.sqlite$/.test(f))
+    .sort((a, b) => statSync(join(backupDir, b)).mtimeMs - statSync(join(backupDir, a)).mtimeMs);
   const newest = backups[0];
   const ageHours = newest ? (Date.now() - statSync(join(backupDir, newest)).mtimeMs) / 36e5 : Infinity;
   add('recent backup exists', backups.length > 0 && ageHours < 48, { count: backups.length, newest, ageHours: Number(ageHours.toFixed(2)) });

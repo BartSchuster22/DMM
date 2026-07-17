@@ -1,15 +1,16 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AppConfig } from './config/env.js';
 import type { Db } from './db/sqlite.js';
-import { dmmSectionManifest, type ApiResponse, type AuthUser, type StatusPayload, type ModelStatus, type ProviderStatus } from '@dmm/shared';
+import { dmmSectionManifest, type ApiResponse, type AuthUser, type StatusPayload } from '@dmm/shared';
 import { createSession, destroySession, getSession, requestSessionId, setSessionCookie, clearSessionCookie, sign, csrfHeader } from './auth/sessions.js';
 import { verifyPassword } from './auth/password.js';
 import { insertAudit, listAudit } from './db/sqlite.js';
 import type { AdapterRegistry } from './adapters/registry.js';
-import { listModels, listNormalizedDmmState, listProviders, listProviderCredentialRequirements, setModelStatus, setProviderStatus } from './catalog/catalog.js';
+import { listModels, listNormalizedDmmState, listProviders, listProviderCredentialRequirements } from './catalog/catalog.js';
 import { listCatalogDiffs, listCatalogSnapshots } from './catalog/snapshots.js';
 import { listCatalogLifecycle } from './catalog/lifecycle.js';
 import { deleteCredential, getCredential, listCredentials, markCredentialValidated, saveCredential } from './vault/credential-store.js';
+
 import { clientIp, sanitizeIdentifier, sanitizeSecret } from './security.js';
 export type AppContext = { db: Db; config: AppConfig; version: string; adapters: AdapterRegistry };
 type LoginBody = { username?: string; password?: string };
@@ -33,19 +34,22 @@ export async function registerApi(app: FastifyInstance, ctx: AppContext): Promis
   app.post('/api/catalog/lifecycle/refresh', { preHandler: requireAuth(ctx) }, async (request) => ok(await ctx.adapters.refreshUpdateDrivenCatalog(currentUser(ctx, request)?.username ?? 'admin')));
   app.post('/api/catalog/refresh', { preHandler: requireAuth(ctx) }, async (request) => ok({ results: await ctx.adapters.refreshCatalog(currentUser(ctx, request)?.username ?? 'admin') }));
   app.post('/api/harnesses/:id/catalog/refresh', { preHandler: requireAuth(ctx) }, async (request) => ok({ results: await ctx.adapters.refreshCatalog(currentUser(ctx, request)?.username ?? 'admin', sanitizeIdentifier((request.params as any).id, 'harness_id')) }));
-  app.post('/api/harnesses/:id/operations/:operationId', { preHandler: requireAuth(ctx) }, async (request) => ok({ result: await ctx.adapters.runHarnessOperation(currentUser(ctx, request)?.username ?? 'admin', sanitizeIdentifier((request.params as any).id, 'harness_id'), sanitizeIdentifier((request.params as any).operationId, 'operation_id'), (request.body ?? {}) as Record<string, unknown>) }));
   app.get('/api/providers', { preHandler: requireAuth(ctx) }, async () => ok({ providers: listProviders(ctx.db) }));
   app.get('/api/providers/requirements', { preHandler: requireAuth(ctx) }, async () => ok({ requirements: listProviderCredentialRequirements(ctx.db) }));
   app.get('/api/credentials', { preHandler: requireAuth(ctx) }, async () => ok({ credentials: listCredentials(ctx.db) }));
   app.get('/api/normalized-state', { preHandler: requireAuth(ctx) }, async () => ok(listNormalizedDmmState(ctx.db)));
-  app.post('/api/providers/:id/enable', { preHandler: requireAuth(ctx) }, async (request) => ok({ provider: setProviderStatus(ctx.db, currentUser(ctx, request)?.username ?? 'admin', sanitizeIdentifier((request.params as any).id, 'provider_id'), 'available') }));
-  app.post('/api/providers/:id/disable', { preHandler: requireAuth(ctx) }, async (request) => ok({ provider: setProviderStatus(ctx.db, currentUser(ctx, request)?.username ?? 'admin', sanitizeIdentifier((request.params as any).id, 'provider_id'), 'disabled' as ProviderStatus) }));
-  app.post('/api/providers/:id/credential', { preHandler: requireAuth(ctx) }, async (request) => { const actor = currentUser(ctx, request)?.username ?? 'admin'; const providerId = sanitizeIdentifier((request.params as any).id, 'provider_id'); const secret = sanitizeSecret((request.body as CredentialBody).secret); const credential = saveCredential(ctx.db, ctx.config.masterKey, actor, providerId, secret); const install = await ctx.adapters.installProviderCredential(actor, providerId, secret); markCredentialValidated(ctx.db, actor, providerId, install.aggregateStatus, `BYOK install aggregate status: ${install.aggregateStatus}`); return ok({ credential, install: redactAdapterResult(install) }); });
+  app.post('/api/providers/:id/credential', { preHandler: requireAuth(ctx) }, async (request, reply) => { const actor = currentUser(ctx, request)?.username ?? 'admin'; const providerId = sanitizeIdentifier((request.params as any).id, 'provider_id'); const availability = frameworkProviderForKeyActivation(ctx.db, providerId); if (!availability) return reply.code(404).send(fail('provider_not_available', 'Provider is not available from a configured agent framework', 404)); if (availability.authMethod !== 'api_key') return reply.code(409).send(fail('provider_key_activation_unsupported', `Provider uses ${availability.authMethod}; API-key activation is not supported`, 409)); if (!availability.installSupported) return reply.code(409).send(fail('framework_key_install_unsupported', 'The configured agent framework cannot install a key for this provider', 409)); const secret = sanitizeSecret((request.body as CredentialBody).secret); const credential = saveCredential(ctx.db, ctx.config.masterKey, actor, providerId, secret); const install = await ctx.adapters.installProviderCredential(actor, providerId, secret); markCredentialValidated(ctx.db, actor, providerId, install.aggregateStatus, `Framework key activation aggregate status: ${install.aggregateStatus}`); return ok({ credential, install: redactAdapterResult(install) }); });
   app.delete('/api/providers/:id/credential', { preHandler: requireAuth(ctx) }, async (request) => ok({ credential: deleteCredential(ctx.db, currentUser(ctx, request)?.username ?? 'admin', sanitizeIdentifier((request.params as any).id, 'provider_id')) }));
-  app.post('/api/providers/:id/validate', { preHandler: requireAuth(ctx) }, async (request, reply) => { const actor = currentUser(ctx, request)?.username ?? 'admin'; const providerId = sanitizeIdentifier((request.params as any).id, 'provider_id'); const stored = getCredential(ctx.db, ctx.config.masterKey, providerId); if (!stored) return reply.code(404).send(fail('credential_missing', 'No saved credential for provider', 404)); const validation = await ctx.adapters.validateProviderCredential(actor, providerId, stored.secret); const credential = markCredentialValidated(ctx.db, actor, providerId, validation.aggregateStatus, `BYOK validation aggregate status: ${validation.aggregateStatus}`); return ok({ credential, validation: redactAdapterResult(validation) }); });
+  app.post('/api/providers/:id/validate', { preHandler: requireAuth(ctx) }, async (request, reply) => { const actor = currentUser(ctx, request)?.username ?? 'admin'; const providerId = sanitizeIdentifier((request.params as any).id, 'provider_id'); if (!frameworkProviderForKeyActivation(ctx.db, providerId)) return reply.code(404).send(fail('provider_not_available', 'Provider is not available from a configured agent framework', 404)); const stored = getCredential(ctx.db, ctx.config.masterKey, providerId); if (!stored) return reply.code(404).send(fail('credential_missing', 'No saved credential for provider', 404)); const validation = await ctx.adapters.validateProviderCredential(actor, providerId, stored.secret); const credential = markCredentialValidated(ctx.db, actor, providerId, validation.aggregateStatus, `Framework key validation aggregate status: ${validation.aggregateStatus}`); return ok({ credential, validation: redactAdapterResult(validation) }); });
   app.get('/api/models', { preHandler: requireAuth(ctx) }, async () => ok({ models: listModels(ctx.db) }));
-  app.post('/api/models/:id/enable', { preHandler: requireAuth(ctx) }, async (request) => ok({ model: setModelStatus(ctx.db, currentUser(ctx, request)?.username ?? 'admin', sanitizeIdentifier((request.params as any).id, 'model_id'), 'enabled') }));
-  app.post('/api/models/:id/disable', { preHandler: requireAuth(ctx) }, async (request) => ok({ model: setModelStatus(ctx.db, currentUser(ctx, request)?.username ?? 'admin', sanitizeIdentifier((request.params as any).id, 'model_id'), 'disabled' as ModelStatus) }));
+}
+export function frameworkProviderForKeyActivation(db: Db, providerId: string): { authMethod: string; installSupported: boolean } | null {
+  const row = db.prepare(`SELECT p.auth_method authMethod, MAX(hp.credential_install_supported) installSupported FROM providers p
+    JOIN harness_providers hp ON hp.provider_id=p.id AND hp.status != 'removed_from_harness'
+    JOIN harnesses h ON h.id=hp.harness_id AND h.enabled=1
+    WHERE p.id=?
+    GROUP BY p.id, p.auth_method`).get(providerId) as { authMethod: string; installSupported: number } | undefined;
+  return row ? { authMethod: row.authMethod, installSupported: Boolean(row.installSupported) } : null;
 }
 function currentSession(ctx: AppContext, request: FastifyRequest) { const id = requestSessionId(request, ctx.config.sessionSecret); return id ? getSession(ctx.db, id) : null; }
 function currentUser(ctx: AppContext, request: FastifyRequest): AuthUser | null { const session = currentSession(ctx, request); if (!session) return null; const row: any = ctx.db.prepare('SELECT username,role FROM users WHERE username = ?').get(session.username); return row ? { username: row.username, role: row.role } : null; }

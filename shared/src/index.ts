@@ -9,11 +9,11 @@ export type HarnessStatus = 'unknown' | 'online' | 'degraded' | 'offline';
 export type AuditEvent = { id: string; eventType: string; actor: string; targetType: string; targetId: string; payload: unknown; createdAt: string };
 export type ProviderStatus = 'available' | 'configured' | 'healthy' | 'degraded' | 'disabled' | 'unavailable';
 export type CredentialStatus = 'missing' | 'saved' | 'healthy' | 'invalid' | 'unsupported' | 'error';
-export type ModelStatus = 'available' | 'enabled' | 'disabled' | 'deprecated' | 'unavailable';
+export type ModelStatus = 'available' | 'configured_default' | 'configured_fallback' | 'disabled' | 'deprecated' | 'unavailable';
 export type ProviderHarnessCredentialState = { harnessId: string; status: CredentialStatus; discoverySupported: boolean; credentialInstallSupported: boolean; modelCount: number; lastDiscoveredAt?: string; lastValidatedAt?: string };
 export type ProviderCredentialRequirementView = { providerId: string; label: string; authMethod: string; status: ProviderStatus; credentialStatus: CredentialStatus; requiredEnvVars: string[]; configuredEnvVars: string[]; credentialPoolCount: number; harnesses: ProviderHarnessCredentialState[]; docsUrl?: string; updatedAt: string };
 export type CredentialView = { providerId: string; providerLabel: string; authMethod: string; scope: string; status: CredentialStatus; fingerprint: string; harnessId?: string; lastValidatedAt?: string; createdAt: string; updatedAt: string };
-export type ProviderView = { id: string; label: string; authMethod: string; docsUrl?: string; status: ProviderStatus; credentialStatus: CredentialStatus; credentialFingerprint?: string; modelCount: number; harnesses: string[]; credentialRequirements?: ProviderCredentialRequirementView; updatedAt: string };
+export type ProviderView = { id: string; label: string; authMethod: string; docsUrl?: string; status: ProviderStatus; credentialStatus: CredentialStatus; credentialFingerprint?: string; modelCount: number; harnesses: string[]; credentialRequirements?: ProviderCredentialRequirementView; providerKind?: string; upstreamProviderId?: string; role?: string; updatedAt: string };
 export type ModelView = { id: string; providerId: string; displayName: string; modality: string; contextWindow?: number; status: ModelStatus; harnesses: string[]; updatedAt: string };
 
 export type AdapterCapabilitiesView = Record<string, boolean>;
@@ -44,6 +44,9 @@ export type NormalizedProviderState = {
   dmmCredentialStatus: CredentialStatus;
   dmmCredentialFingerprint?: string;
   externalSource: string;
+  providerKind?: string;
+  upstreamProviderId?: string;
+  role?: string;
   modelCount: number;
   harnessStates: NormalizedHarnessProviderState[];
   updatedAt: string;

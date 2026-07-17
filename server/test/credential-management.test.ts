@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb, migrate } from '../src/db/sqlite.ts';
-import { seedCatalog } from '../src/catalog/catalog.ts';
+
 import { deleteCredential, getCredential, listCredentials, markCredentialValidated, saveCredential } from '../src/vault/credential-store.ts';
 
 const masterKey = 'phase-b-test-master-key-credential-management';
@@ -9,7 +9,7 @@ const masterKey = 'phase-b-test-master-key-credential-management';
 test('DMM credential vault stores encrypted BYOK, exposes only fingerprint inventory, and supports validation/delete lifecycle', () => {
   const db = openDb(':memory:');
   migrate(db);
-  seedCatalog(db);
+  db.prepare(`INSERT INTO providers (id,label,auth_method,status,metadata_json,created_at,updated_at) VALUES (?,?,?,?,?,?,?)`).run('openrouter', 'OpenRouter', 'api_key', 'available', '{}', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
 
   const secret = 'sk-test-phase-b-credential-value';
   const saved = saveCredential(db, masterKey, 'tester', 'openrouter', secret);

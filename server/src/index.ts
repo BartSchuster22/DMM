@@ -10,12 +10,12 @@ import { migrate, openDb } from './db/sqlite.js';
 import { ensureAdmin } from './auth/bootstrap.js';
 import { registerApi } from './api.js';
 import { AdapterRegistry } from './adapters/registry.js';
-import { seedCatalog } from './catalog/catalog.js';
+
 import { registerSecurity } from './security.js';
 const version = '0.3.0';
 const config = loadConfig();
 const db = openDb(config.dbPath);
-migrate(db); seedCatalog(db);
+migrate(db);
 const admin = ensureAdmin(db, config.adminUser, config.adminPassword);
 if (admin.generatedPassword) console.log(`[DMM] Generated initial admin credentials username=${admin.username} password=${admin.generatedPassword}`);
 const adapters = new AdapterRegistry(db, config.harnesses);

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type {
   AuthUser, ProviderView, ModelView, AuditEvent, HarnessView,
   CatalogSnapshotView, CatalogDiffView, ProviderCredentialRequirementView,
-  CatalogLifecycleView, CredentialView, HarnessOperationControlView, ModelStatus, NormalizedDmmStateView, NormalizedProviderState
+  CatalogLifecycleView, CredentialView, ModelStatus, NormalizedDmmStateView, NormalizedProviderState
 } from '@dmm/shared';
 import { dmmSectionManifest } from '@dmm/shared';
 import './styles.css';
@@ -22,10 +22,10 @@ const PAGE_TITLES: Record<PageId, string> = {
   audit: 'Audit',
 };
 const PAGE_HINTS: Record<PageId, string> = {
-  modelboard: 'DMM-local model status across normalized catalogs',
-  catalog: 'normalized harness catalog snapshots and diffs',
-  providers: 'external providers, DMM credentials, and harness credential state',
-  harnesses: 'available harness instances, health, and lifecycle',
+  modelboard: 'models reported by the active agent framework',
+  catalog: 'agent-framework catalog snapshots and diffs',
+  providers: 'framework-available providers and provider-key activation',
+  harnesses: 'active agent-framework instances, health, and lifecycle',
   audit: 'recent administrative events',
 };
 
@@ -89,8 +89,8 @@ function LoginPage({ onLogin }: { onLogin: (me: Me) => void }) {
   );
 }
 
-function HarnessesSection({ harnesses, busy, onRefresh, onLifecycle, onCatalog, onOperation }: {
-  harnesses: HarnessView[]; busy: string; onRefresh: () => void; onLifecycle: () => void; onCatalog: () => void; onOperation: (harnessId: string, operation: HarnessOperationControlView) => void;
+function HarnessesSection({ harnesses, busy, onRefresh, onLifecycle, onCatalog }: {
+  harnesses: HarnessView[]; busy: string; onRefresh: () => void; onLifecycle: () => void; onCatalog: () => void;
 }) {
   return (
     <div className="panel" id="harnesses">
@@ -115,7 +115,6 @@ function HarnessesSection({ harnesses, busy, onRefresh, onLifecycle, onCatalog, 
             <span>Update checked</span><b>{ts(h.lastUpdateCheckedAt)}</b>
           </div>
           {h.lifecycleMessage && <div className="note">{h.lifecycleMessage}</div>}
-          {h.type === 'free-model-router' && <FmrVisibilityDetails harness={h} allHarnesses={harnesses} busy={busy} onOperation={onOperation} />}
         </div>
       ))}</div>
     </div>
@@ -123,42 +122,6 @@ function HarnessesSection({ harnesses, busy, onRefresh, onLifecycle, onCatalog, 
 }
 
 
-function FmrVisibilityDetails({ harness, allHarnesses, busy, onOperation }: { harness: HarnessView; allHarnesses: HarnessView[]; busy: string; onOperation: (harnessId: string, operation: HarnessOperationControlView) => void }) {
-  const cfg = harness.config || {};
-  const supported = Array.isArray(cfg.supportedHarnesses) ? cfg.supportedHarnesses.map(String) : [];
-  const compatibility = allHarnesses.filter(h => h.id !== harness.id && h.type !== 'free-model-router');
-  return (
-    <div className="subsection" style={{ marginTop: 12 }}>
-      <h3>FMRv2 visibility</h3>
-      <div className="kv">
-        <span>Service module</span><b>{cfg.serviceModule === false ? 'no' : 'separate'}</b>
-        <span>Availability</span><b>{String(cfg.availability || 'active')}</b>
-        <span>Role</span><b>curated free-model policy/ranking source</b>
-        <span>Fallback placement owner</span><b>{String(cfg.fallbackPlacementOwner || 'agent-management')}</b>
-      </div>
-      <div className="item-meta" style={{ marginTop: 10 }}>DMM shows FMRv2 availability and harness capability. Per-agent fallback-chain order is not decided here.</div>
-      <div className="subsection" style={{ marginTop: 12 }}>
-        <h3>Operation controls</h3>
-        <div className="panel-desc">Controls are allowlisted by the FMRv2 DMM adapter. They operate on FMRv2 itself; DMM does not mutate Hermes, OpenClaw, Model Router V1, or fallback-chain order.</div>
-        <div className="table-rows" style={{ marginTop: 10 }}>
-          {(harness.operations || []).map(op => (
-            <div className="table-row" key={op.id}>
-              <div className="info"><strong>{op.label}</strong><p>{op.description} | {op.method} | {op.requiresToken ? 'machine token required' : 'public status'}</p></div>
-              <button className="ghost sm" onClick={() => onOperation(harness.id, op)} disabled={!!busy}>{busy === harness.id + op.id ? 'Running…' : 'Run'}</button>
-            </div>
-          ))}
-          {(!harness.operations || harness.operations.length === 0) && <div className="item-meta">No FMRv2 operations exposed by this adapter.</div>}
-        </div>
-      </div>
-      <div className="table-rows" style={{ marginTop: 10 }}>
-        {compatibility.map(target => {
-          const state = supported.includes(target.id) ? 'supported' : 'unknown';
-          return <div className="table-row" key={target.id}><div className="info"><strong>{target.label}</strong><p>{target.id} | {target.type}</p></div><Badge text={state} /></div>;
-        })}
-      </div>
-    </div>
-  );
-}
 
 function CatalogSection({ snapshots, diffs, lifecycle, busy, onRefresh, onLifecycleRefresh }: {
   snapshots: CatalogSnapshotView[]; diffs: CatalogDiffView[]; lifecycle: CatalogLifecycleView[];
@@ -210,32 +173,35 @@ function CatalogSection({ snapshots, diffs, lifecycle, busy, onRefresh, onLifecy
   );
 }
 
-function ProvidersSection({ providerStates, requirements, credentials, busy, onByok, onValidate, onDeleteCred }: {
-  providerStates: NormalizedProviderState[]; requirements: ProviderCredentialRequirementView[]; credentials: CredentialView[]; busy: string;
+function ProvidersSection({ providers, providerStates, requirements, credentials, busy, onByok, onValidate, onDeleteCred }: {
+  providers: ProviderView[]; providerStates: NormalizedProviderState[]; requirements: ProviderCredentialRequirementView[]; credentials: CredentialView[]; busy: string;
   onByok: (p: ProviderView) => void; onValidate: (id: string) => void; onDeleteCred: (id: string) => void;
 }) {
   const credentialByProvider = new Map(credentials.map(c => [c.providerId, c]));
   const requirementByProvider = new Map(requirements.map(r => [r.providerId, r]));
-  const toProviderView = (p: NormalizedProviderState): ProviderView => ({ id: p.providerId, label: p.label, authMethod: p.authMethod, status: p.dmmProviderStatus, credentialStatus: p.dmmCredentialStatus, credentialFingerprint: p.dmmCredentialFingerprint, modelCount: p.modelCount, harnesses: p.harnessStates.map(h => h.harnessId), updatedAt: p.updatedAt });
+  const providerById = new Map(providers.map(p => [p.id, p]));
+  const toProviderView = (p: NormalizedProviderState): ProviderView => providerById.get(p.providerId) || ({ id: p.providerId, label: p.label, authMethod: p.authMethod, status: p.dmmProviderStatus, credentialStatus: p.dmmCredentialStatus, credentialFingerprint: p.dmmCredentialFingerprint, modelCount: p.modelCount, harnesses: p.harnessStates.map(h => h.harnessId), credentialRequirements: requirementByProvider.get(p.providerId), updatedAt: p.updatedAt });
   return (
     <div className="panel" id="providers">
-      <div className="panel-head"><h2>External Providers + DMM Credentials</h2></div>
-      <div className="panel-desc">Credential management is DMM-local first: secrets stay encrypted in the DMM vault, validation/install is delegated only to Layer 3 adapters that advertise support.</div>
+      <div className="panel-head"><h2>Framework Providers + Activation Keys</h2></div>
+      <div className="panel-desc">Provider and model availability comes only from the active agent framework. DMM encrypts submitted keys and delegates activation to that framework.</div>
       <div className="provider-grid">{providerStates.map(p => {
         const saved = credentialByProvider.get(p.providerId);
         return <div className="item" key={p.providerId}>
           <div className="item-head"><strong><a className="entity-link" href={`#providers/${encodeURIComponent(p.providerId)}`} aria-label={`Open ${p.label} models`}>{p.label}</a></strong><Badge text={p.dmmProviderStatus} /></div>
-          <div className="item-meta">{p.authMethod} | {p.modelCount} models | source: {p.externalSource}</div>
+          <div className="item-meta">{p.authMethod} | {p.modelCount} models | source: {p.externalSource}{p.providerKind ? ` | type: ${p.providerKind}` : ''}{p.upstreamProviderId ? ` | upstream: ${p.upstreamProviderId}` : ''}</div>
           <div className="cred-strip"><CredDot status={p.dmmCredentialStatus} /><span>DMM credential: {p.dmmCredentialStatus}</span>{p.dmmCredentialFingerprint && <span>({p.dmmCredentialFingerprint})</span>}</div>
           <div className="kv" style={{ marginTop: 10 }}>
             <span>DMM provider status</span><b>{p.dmmProviderStatus}</b>
             <span>Vault record</span><b>{saved ? `${saved.scope} | ${saved.status} | ${saved.fingerprint}` : 'none'}</b>
+            {p.role && <><span>Role</span><b>{p.role}</b></>}
             <span>Layer 3 harness states</span><b>{p.harnessStates.length > 0 ? p.harnessStates.map(h => <span key={h.harnessId} style={{ marginRight: 10 }}><CredDot status={h.credentialStatus} /> {h.harnessId}: {h.credentialStatus} / install {h.credentialInstallSupported ? 'supported' : 'unsupported'} ({h.modelCount})</span>) : 'none'}</b>
           </div>
           <div className="panel-actions" style={{ marginTop: 12 }}>
-            <button className="ghost sm" onClick={() => onByok(toProviderView(p))}>Save / rotate BYOK</button>
-            {saved && <button className="ghost sm" onClick={() => onValidate(p.providerId)} disabled={busy === p.providerId + 'validate'}>{busy === p.providerId + 'validate' ? 'Validating…' : 'Validate + sync adapters'}</button>}
-            {saved && <button className="ghost sm danger" onClick={() => onDeleteCred(p.providerId)}>Delete DMM key</button>}
+            {p.authMethod === 'api_key' && p.harnessStates.some(h => h.credentialInstallSupported) && <button className="ghost sm" onClick={() => onByok(toProviderView(p))}>Activate / rotate provider key</button>}
+            {p.authMethod !== 'api_key' && <span className="note">Authentication is managed by the agent framework ({p.authMethod}).</span>}
+            {saved && <button className="ghost sm" onClick={() => onValidate(p.providerId)} disabled={busy === p.providerId + 'validate'}>{busy === p.providerId + 'validate' ? 'Validating…' : 'Validate provider key'}</button>}
+            {saved && <button className="ghost sm danger" onClick={() => onDeleteCred(p.providerId)}>Delete DMM vault copy</button>}
           </div>
         </div>;
       })}</div>
@@ -252,10 +218,9 @@ function ProvidersSection({ providerStates, requirements, credentials, busy, onB
 
 type ModelFilterStatus = 'all' | ModelStatus;
 
-function ProviderModelsPage({ provider, models, busy, onByok, onValidate, onDeleteCred, onToggleProvider, onToggleModel }: {
+function ProviderModelsPage({ provider, models, busy, onByok, onValidate, onDeleteCred }: {
   provider: ProviderView; models: ModelView[]; busy: string;
   onByok: (p: ProviderView) => void; onValidate: (id: string) => void; onDeleteCred: (id: string) => void;
-  onToggleProvider: (id: string, current: string) => void; onToggleModel: (id: string, current: ModelStatus) => void;
 }) {
   const [search, setSearch] = useState('');
   const providerModels = useMemo(() => {
@@ -275,20 +240,19 @@ function ProviderModelsPage({ provider, models, busy, onByok, onValidate, onDele
         <div>
           <a className="back-link" href="#providers">← Providers</a>
           <h2>{provider.label} Models</h2>
-          <div className="panel-desc" style={{ margin: '6px 0 0' }}>{provider.id} | {provider.authMethod} | harness bindings: {provider.harnesses.join(', ') || 'none yet'} | DMM provider status is not runtime model routing</div>
+          <div className="panel-desc" style={{ margin: '6px 0 0' }}>{provider.id} | {provider.authMethod} | framework bindings: {provider.harnesses.join(', ') || 'none'}</div>
         </div>
         <div className="panel-actions">
           <Badge text={provider.status} />
-          <button className="ghost sm" onClick={() => onByok(provider)}>Save BYOK in DMM</button>
-          {provider.credentialStatus !== 'missing' && <button className="ghost sm" onClick={() => onValidate(provider.id)} disabled={busy === provider.id + 'validate'}>{busy === provider.id + 'validate' ? 'Validating\u2026' : 'Validate via adapters'}</button>}
-          {provider.credentialStatus !== 'missing' && <button className="ghost sm danger" onClick={() => onDeleteCred(provider.id)}>Delete DMM key</button>}
-          <button className="sm" onClick={() => onToggleProvider(provider.id, provider.status)}>{provider.status === 'disabled' ? 'Mark available in DMM' : 'Disable in DMM'}</button>
+          {provider.authMethod === 'api_key' && provider.credentialRequirements?.harnesses.some(h => h.credentialInstallSupported) && <button className="ghost sm" onClick={() => onByok(provider)}>Activate / rotate provider key</button>}
+          {provider.credentialStatus !== 'missing' && <button className="ghost sm" onClick={() => onValidate(provider.id)} disabled={busy === provider.id + 'validate'}>{busy === provider.id + 'validate' ? 'Validating\u2026' : 'Validate provider key'}</button>}
+          {provider.credentialStatus !== 'missing' && <button className="ghost sm danger" onClick={() => onDeleteCred(provider.id)}>Delete DMM vault copy</button>}
         </div>
       </div>
       <div className="stats-grid">
         <StatCard label="Provider Models" value={String(counts.total || 0)} hint="models normalized for this provider" />
-        <StatCard label="DMM Enabled" value={String(counts.enabled || 0)} hint="DMM-local model status" />
-        <StatCard label="DMM Available" value={String(counts.available || 0)} hint="available but not DMM-enabled" />
+        <StatCard label="Framework Default" value={String(counts.configured_default || 0)} hint="configured primary model" />
+        <StatCard label="Framework Fallbacks" value={String(counts.configured_fallback || 0)} hint="configured fallback models" />
         <StatCard label="DMM Credential" value={provider.credentialStatus} hint={provider.credentialFingerprint || 'no fingerprint'} />
       </div>
       <div className="filter-bar">
@@ -300,7 +264,7 @@ function ProviderModelsPage({ provider, models, busy, onByok, onValidate, onDele
           <div className="table-row" key={m.id}>
             <div className="info"><strong>{m.displayName}</strong><p>{m.id} | {m.modality}{m.contextWindow ? ` | ${m.contextWindow} context` : ''} | {m.harnesses.join(', ') || 'no harness binding yet'}</p></div>
             <Badge text={m.status} />
-            <div className="actions"><button className="ghost sm" onClick={() => onToggleModel(m.id, m.status)} disabled={busy === m.id + (m.status === 'enabled' ? 'disable' : 'enable')}>{m.status === 'enabled' ? 'Disable in DMM' : 'Enable in DMM'}</button></div>
+
           </div>
         ))}
         {providerModels.length === 0 && <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--muted)' }}>No models found for this provider.</div>}
@@ -309,7 +273,7 @@ function ProviderModelsPage({ provider, models, busy, onByok, onValidate, onDele
   );
 }
 
-function ModelBoardSection({ models, busy, onToggle }: { models: ModelView[]; busy: string; onToggle: (id: string, current: ModelStatus) => void; }) {
+function ModelBoardSection({ models }: { models: ModelView[] }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ModelFilterStatus>('all');
   const filtered = useMemo(() => {
@@ -328,7 +292,7 @@ function ModelBoardSection({ models, busy, onToggle }: { models: ModelView[]; bu
       <div className="panel-head"><h2>ModelBoard</h2></div>
       <div className="filter-bar">
         <input className="search-input" placeholder="Search models / providers..." value={search} onChange={e => setSearch(e.target.value)} />
-        <div className="panel-actions">{(['all', 'available', 'enabled', 'disabled', 'deprecated', 'unavailable'] as ModelFilterStatus[]).map(s => (
+        <div className="panel-actions">{(['all', 'available', 'configured_default', 'configured_fallback', 'disabled', 'deprecated', 'unavailable'] as ModelFilterStatus[]).map(s => (
           <button key={s} className="ghost sm" style={statusFilter === s ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}} onClick={() => setStatusFilter(s)}>{s === 'all' ? 'All' : s} {counts[s] != null ? `(${counts[s]})` : ''}</button>
         ))}</div>
         <span className="count">{filtered.length} of {models.length}</span>
@@ -338,7 +302,7 @@ function ModelBoardSection({ models, busy, onToggle }: { models: ModelView[]; bu
           <div className="table-row" key={m.id}>
             <div className="info"><strong>{m.displayName}</strong><p>{m.providerId} | {m.harnesses.join(', ') || 'no harness binding yet'}</p></div>
             <Badge text={m.status} />
-            <div className="actions"><button className="ghost sm" onClick={() => onToggle(m.id, m.status)} disabled={busy === m.id + (m.status === 'enabled' ? 'disable' : 'enable')}>{m.status === 'enabled' ? 'Disable in DMM' : 'Enable in DMM'}</button></div>
+
           </div>
         ))}
         {filtered.length === 0 && <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--muted)' }}>No models match the current filter.</div>}
@@ -366,12 +330,12 @@ function ByokModal({ provider, busy, onSave, onCancel }: { provider: ProviderVie
   return (
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal-card" onClick={e => e.stopPropagation()}>
-        <h2>BYOK | {provider.label}</h2>
-        <p>Secret is encrypted in the DMM vault. If a harness adapter supports install, DMM can pass it to that harness without returning the raw value to the UI.</p>
+        <h2>Activate {provider.label}</h2>
+        <p>The key is encrypted in the DMM vault and installed into the active agent framework without being returned to the browser.</p>
         <input type="password" value={secret} onChange={e => setSecret(e.target.value)} placeholder="API key / token" autoFocus />
         <div className="modal-actions">
           <button className="ghost" onClick={onCancel}>Cancel</button>
-          <button onClick={() => onSave(secret)} disabled={!secret || busy === 'secret'}>{busy === 'secret' ? 'Saving\u2026' : 'Save DMM credential'}</button>
+          <button onClick={() => onSave(secret)} disabled={!secret || busy === 'secret'}>{busy === 'secret' ? 'Activating\u2026' : 'Activate provider'}</button>
         </div>
       </div>
     </div>
@@ -439,24 +403,11 @@ function ModelBoard({ me, onLogout }: { me: Me; onLogout: () => void }) {
     const r = await api(`/api/providers/${secretProvider.id}/credential`, { method: 'POST', headers, body: JSON.stringify({ secret }) });
     setBusy(''); setSecretProvider(null); await load(); if (!r.ok) alert(r.error.message);
   }
-  function providerAction(id: string, action: string) { act(id + action, () => api(`/api/providers/${id}/${action}`, { method: 'POST', headers }).then(() => {})); }
   function deleteCredential(id: string) { act(id + 'delete', () => api(`/api/providers/${id}/credential`, { method: 'DELETE', headers }).then(() => {})); }
   function validateCredential(id: string) { act(id + 'validate', () => api(`/api/providers/${id}/validate`, { method: 'POST', headers }).then(() => {})); }
-  function runHarnessOperation(harnessId: string, operation: HarnessOperationControlView) {
-    act(harnessId + operation.id, async () => {
-      const r = await api<{ result: { status: string; message?: string } }>(`/api/harnesses/${encodeURIComponent(harnessId)}/operations/${encodeURIComponent(operation.id)}`, { method: 'POST', headers, body: JSON.stringify({}) });
-      if (!r.ok) alert(r.error.message);
-      else if (r.data.result.status !== 'completed') alert(r.data.result.message || `Operation ${r.data.result.status}`);
-    });
-  }
-  function toggleProvider(id: string, current: string) { providerAction(id, current === 'disabled' ? 'enable' : 'disable'); }
-  function toggleModel(id: string, current: ModelStatus) {
-    act(id + (current === 'enabled' ? 'disable' : 'enable'), () =>
-      api(`/api/models/${encodeURIComponent(id)}/${current === 'enabled' ? 'disable' : 'enable'}`, { method: 'POST', headers }).then(() => {}));
-  }
   async function logout() { await api('/api/auth/logout', { method: 'POST', headers }); onLogout(); }
 
-  const enabledModels = models.filter(m => m.status === 'enabled').length;
+  const defaultModels = models.filter(m => m.status === 'configured_default').length;
   const totalModels = models.length;
   const providerStates = normalizedState?.providers ?? providers.map(p => ({ layer: 'dmm_ui' as const, providerId: p.id, label: p.label, authMethod: p.authMethod, dmmProviderStatus: p.status, dmmCredentialStatus: p.credentialStatus, dmmCredentialFingerprint: p.credentialFingerprint, externalSource: 'legacy-provider-view', modelCount: p.modelCount, harnessStates: [], updatedAt: p.updatedAt }));
   const currentProvider = providers.find(p => p.id === currentProviderId) || null;
@@ -465,10 +416,10 @@ function ModelBoard({ me, onLogout }: { me: Me; onLogout: () => void }) {
   const pageHint = currentProvider ? 'provider model list' : PAGE_HINTS[currentPage];
   const pageStats: Partial<Record<PageId, React.ReactNode>> = {
     modelboard: <div className="stats-grid">
-      <StatCard label="DMM Enabled Models" value={String(enabledModels)} hint="DMM-local model status" />
-      <StatCard label="Total Models" value={String(totalModels)} hint="discovered across all harnesses" />
-      <StatCard label="External Providers" value={String(providers.length)} hint="seeded + discovered provider sources" />
-      <StatCard label="Harness Instances" value={String(harnesses.length)} hint="available runtime instances" />
+      <StatCard label="Framework Default" value={String(defaultModels)} hint="primary model reported by framework" />
+      <StatCard label="Total Models" value={String(totalModels)} hint="reported by active frameworks" />
+      <StatCard label="Providers" value={String(providers.length)} hint="reported by active frameworks" />
+      <StatCard label="Framework Instances" value={String(harnesses.length)} hint="configured agent frameworks" />
     </div>,
     catalog: <div className="stats-grid">
       <StatCard label="Snapshots" value={String(snapshots.length)} hint="captured harness catalogs" />
@@ -477,12 +428,12 @@ function ModelBoard({ me, onLogout }: { me: Me; onLogout: () => void }) {
     </div>,
     providers: currentProvider ? <div className="stats-grid">
       <StatCard label="Provider Models" value={String(currentProviderModels.length)} hint={currentProvider.id} />
-      <StatCard label="Enabled" value={String(currentProviderModels.filter(m => m.status === 'enabled').length)} hint="enabled in DMM" />
+      <StatCard label="Default" value={String(currentProviderModels.filter(m => m.status === 'configured_default').length)} hint="framework primary" />
       <StatCard label="Available" value={String(currentProviderModels.filter(m => m.status === 'available').length)} hint="available models" />
     </div> : <div className="stats-grid">
-      <StatCard label="Providers" value={String(providers.length)} hint="seeded + discovered catalog" />
-      <StatCard label="DMM Credentials Saved" value={String(providerStates.filter(r => r.dmmCredentialStatus !== 'missing').length)} hint="vault + normalized harness state" />
-      <StatCard label="Missing DMM Credentials" value={String(providerStates.filter(r => r.dmmCredentialStatus === 'missing').length)} hint="needs BYOK or harness config" />
+      <StatCard label="Providers" value={String(providers.length)} hint="framework catalog" />
+      <StatCard label="Activated" value={String(providerStates.filter(r => r.dmmCredentialStatus !== 'missing').length)} hint="framework or DMM vault key present" />
+      <StatCard label="Key Available" value={String(providerStates.filter(r => r.authMethod === 'api_key' && r.dmmCredentialStatus === 'missing').length)} hint="can be activated with provider key" />
     </div>,
     harnesses: <div className="stats-grid">
       <StatCard label="Harness Instances" value={String(harnesses.length)} hint="configured Layer 2 instances" />
@@ -494,10 +445,10 @@ function ModelBoard({ me, onLogout }: { me: Me; onLogout: () => void }) {
     </div>,
   };
   const pageContent: Record<PageId, React.ReactNode> = {
-    modelboard: <ModelBoardSection models={models} busy={busy} onToggle={toggleModel} />,
+    modelboard: <ModelBoardSection models={models} />,
     catalog: <CatalogSection snapshots={snapshots} diffs={diffs} lifecycle={catalogLifecycle} busy={busy} onRefresh={refreshCatalog} onLifecycleRefresh={refreshCatalogLifecycle} />,
-    providers: currentProvider ? <ProviderModelsPage provider={currentProvider} models={models} busy={busy} onByok={setSecretProvider} onValidate={validateCredential} onDeleteCred={deleteCredential} onToggleProvider={toggleProvider} onToggleModel={toggleModel} /> : <ProvidersSection providerStates={providerStates} requirements={requirements} credentials={credentials} busy={busy} onByok={setSecretProvider} onValidate={validateCredential} onDeleteCred={deleteCredential} />,
-    harnesses: <HarnessesSection harnesses={harnesses} busy={busy} onRefresh={refreshHarnesses} onLifecycle={refreshLifecycle} onCatalog={refreshCatalog} onOperation={runHarnessOperation} />,
+    providers: currentProvider ? <ProviderModelsPage provider={currentProvider} models={models} busy={busy} onByok={setSecretProvider} onValidate={validateCredential} onDeleteCred={deleteCredential} /> : <ProvidersSection providers={providers} providerStates={providerStates} requirements={requirements} credentials={credentials} busy={busy} onByok={setSecretProvider} onValidate={validateCredential} onDeleteCred={deleteCredential} />,
+    harnesses: <HarnessesSection harnesses={harnesses} busy={busy} onRefresh={refreshHarnesses} onLifecycle={refreshLifecycle} onCatalog={refreshCatalog} />,
     audit: <AuditSection events={audit} />,
   };
 
@@ -511,7 +462,7 @@ function ModelBoard({ me, onLogout }: { me: Me; onLogout: () => void }) {
       </aside>
       <div className="main">
         <div className="topbar">
-          <div className="topbar-left"><div className="eyebrow">Direct Model Management | normalized harness layer</div><h1>{pageTitle}</h1></div>
+          <div className="topbar-left"><div className="eyebrow">Direct Model Management | agent-framework operations</div><h1>{pageTitle}</h1></div>
           <div className="topbar-right"><span>{pageHint}</span></div>
         </div>
         <div className="content">

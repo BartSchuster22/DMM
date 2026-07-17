@@ -3,8 +3,7 @@ import { insertAudit, nowIso } from '../db/sqlite.js';
 import type { HarnessConfig } from '../config/env.js';
 import { HermesAdapter } from './hermes/adapter.js';
 import { OpenClawAdapter } from './openclaw/adapter.js';
-import { FreeModelRouterAdapter } from './free-model-router/adapter.js';
-import type { AdapterCapabilities, HarnessAdapter, HarnessOperationResult, HarnessView, CredentialValidationResult, InstallCredentialResult } from './types.js';
+import type { AdapterCapabilities, HarnessAdapter, HarnessView, CredentialValidationResult, InstallCredentialResult } from './types.js';
 import { unsupportedCapabilities } from './types.js';
 import { upsertDiscoveredModel } from '../catalog/catalog.js';
 import { storeCatalogSnapshot } from '../catalog/snapshots.js';
@@ -23,14 +22,13 @@ export class AdapterRegistry {
   constructor(private db: Db, private harnesses: HarnessConfig[], private timeoutMs = 2500) {
     this.register(new HermesAdapter());
     this.register(new OpenClawAdapter());
-    this.register(new FreeModelRouterAdapter());
     this.seedHarnesses();
   }
 
   register(adapter: HarnessAdapter): void { this.adapters.set(adapter.adapterId, adapter); }
 
   configuredHarnesses(): HarnessView[] {
-    const rows = this.db.prepare('SELECT * FROM harnesses ORDER BY id ASC').all() as any[];
+    const rows = this.db.prepare('SELECT * FROM harnesses WHERE enabled=1 ORDER BY id ASC').all() as any[];
     return rows.map((r) => this.rowToView(r));
   }
 
@@ -135,19 +133,6 @@ export class AdapterRegistry {
   }
 
 
-  async runHarnessOperation(actor: string, harnessId: string, operationId: string, input?: Record<string, unknown>): Promise<HarnessOperationResult> {
-    const harness = this.harnesses.find((h) => h.id === harnessId);
-    const adapter = harness ? this.adapters.get(harness.adapterName) : undefined;
-    if (!harness || !adapter || !harness.enabled || !adapter.runOperation) {
-      const result: HarnessOperationResult = { operationId, status: 'unsupported', message: 'Harness operation is unsupported, disabled, or adapter is missing' };
-      insertAudit(this.db, { eventType: 'harness.operation_unsupported', actor, targetType: 'harness', targetId: harnessId, payload: result });
-      return result;
-    }
-    const result = await adapter.runOperation({ harness, timeoutMs: this.timeoutMs }, operationId, input);
-    insertAudit(this.db, { eventType: 'harness.operation_run', actor, targetType: 'harness', targetId: harnessId, payload: { operationId, status: result.status, message: result.message } });
-    return result;
-  }
-
   async validateProviderCredential(actor: string, providerId: string, secret: string): Promise<ProviderCredentialOperationResult> {
     return this.providerCredentialOperation(actor, providerId, secret, false);
   }
@@ -157,7 +142,7 @@ export class AdapterRegistry {
   }
 
   private async providerCredentialOperation(actor: string, providerId: string, secret: string, install: boolean): Promise<ProviderCredentialOperationResult> {
-    const harnessRows = this.db.prepare('SELECT harness_id FROM harness_providers WHERE provider_id=? ORDER BY harness_id').all(providerId) as any[];
+    const harnessRows = this.db.prepare("SELECT harness_id FROM harness_providers WHERE provider_id=? AND status != 'removed_from_harness' ORDER BY harness_id").all(providerId) as any[];
     const results: ProviderCredentialOperationResult['harnessResults'] = [];
     for (const row of harnessRows) {
       const harness = this.harnesses.find((h) => h.id === row.harness_id);
@@ -194,6 +179,9 @@ export class AdapterRegistry {
 
   private seedHarnesses(): void {
     const now = nowIso();
+    const configuredIds = this.harnesses.map((h) => h.id);
+    if (configuredIds.length === 0) this.db.prepare('UPDATE harnesses SET enabled=0, updated_at=?').run(now);
+    else this.db.prepare(`UPDATE harnesses SET enabled=0, updated_at=? WHERE id NOT IN (${configuredIds.map(() => '?').join(',')})`).run(now, ...configuredIds);
     for (const harness of this.harnesses) {
       const adapter = this.adapters.get(harness.adapterName);
       const capabilities = adapter?.capabilities() ?? unsupportedCapabilities;
